@@ -20,21 +20,24 @@ public:
 protected:
 	int send(void* data, int length);
 
+	ssize_t buffered_send(void* data, size_t length);
+	ssize_t flush_pending_writes();
 private:
 	int _fd;
+	std::vector<char> _pending_writes;
 };
 
 class FunctionalSocketStream : public SocketStream
 {
 public:
-	FunctionalSocketStream(int fd, std::function<void(int fd, void* data, int length, std::function<int(void*, int)> write)> receive)
+	FunctionalSocketStream(int fd, std::function<void(int fd, void* data, int length, std::function<ssize_t(void*, size_t)> write)> receive)
 		:SocketStream(fd), _receive(receive)
 	{
 	}
 
 	virtual void receive(void* data, int length) override
 	{
-		_receive(sfd(), data, length, [this](void* data, int length) { return this->send(data, length); });
+		_receive(sfd(), data, length, [this](void* data, size_t length) { return this->buffered_send(data, length); });
 	}
 private:
 	std::function<void(int fd, void* data, int length, std::function<int(void*, int)> write)> _receive;

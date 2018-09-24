@@ -65,10 +65,10 @@ static int create_and_bind(const char* address, int port)
 	return sfd;
 }
 
-void epoll_add(int efd, int sfd, void* data = nullptr)
+void epoll_add(int efd, int sfd, void* data = nullptr, uint32_t events = EPOLLIN | EPOLLET)
 {
 	epoll_event ev;
-	ev.events = EPOLLIN | EPOLLET;
+	ev.events = events;
 	if (data)
 	{
 		ev.data.ptr = data;
@@ -99,6 +99,12 @@ void SocketStream::receive(void* data, int length)
 {
 }
 
+void SocketStream::ready()
+{
+	printf("Received write ready signal\n", _fd);
+	flush_pending_writes();
+}
+
 int SocketStream::send(void* data, int length)
 {
 	if (!valid())
@@ -106,26 +112,31 @@ int SocketStream::send(void* data, int length)
 		throw std::runtime_error("cannot send because the socket has been closed.");
 	}
 
+	// make sure there are no pending writes
+	flush_pending_writes();
+
+	printf("writing %d bytes\n", length);
 	auto r = write(_fd, data, length);
 	if (r == -1)
 	{
 		if (errno == EAGAIN || errno == EWOULDBLOCK)
 		{
+			printf("nothing written, would block\n");
 		}
 		else
 		{
+			printf("socket write error\n");
 			// TODO: what now?
 			close();
-			_fd = 0;
 			throw std::runtime_error("socket error");
 		}
 	}
+	else
+	{
+		printf("wrote %d bytes\n", length);
+	}
 
 	return static_cast<int>(r);
-}
-
-void SocketStream::ready()
-{
 }
 
 void SocketStream::close()
@@ -136,6 +147,105 @@ void SocketStream::close()
 		::close(_fd);
 		_fd = 0;
 	}
+}
+ssize_t SocketStream::buffered_send(void* data, size_t length)
+{
+	if (!valid())
+	{
+		throw std::runtime_error("cannot send because the socket has been closed.");
+	}
+
+	// make sure there are no pending writes
+	flush_pending_writes();
+
+	char* p0 = static_cast<char*>(data);
+	char* p = p0;
+	auto bytes_left = length;
+
+	printf("going to buffered send %d bytes\n", length);
+	while (bytes_left > 0)
+	{
+		printf("writing %d bytes\n", bytes_left);
+		auto written = write(_fd, p, bytes_left);
+		if (written > 0)
+		{
+			printf("wrote %d bytes\n", written);
+			p += written;
+			bytes_left -= written;
+		}
+		else if (written < 0)
+		{
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+			{
+				printf("nothing written, would block\n");
+				// write would block, append to pending buffer
+				auto pending_buffer_size = _pending_writes.size();
+				_pending_writes.resize(pending_buffer_size + bytes_left);
+				char* dst = &_pending_writes[pending_buffer_size];
+				memcpy(dst, p, bytes_left);
+
+				printf("%d bytes will be written when possible\n", bytes_left);
+				break;
+			}
+			else
+			{
+				printf("socket write error\n");
+				// TODO: what now?
+				close();
+				throw std::runtime_error("socket error");
+			}
+		}
+	}
+
+	return static_cast<ssize_t>(p - p0);
+}
+
+ssize_t SocketStream::flush_pending_writes()
+{
+	if (!valid()) return -1;
+
+	char* p0 = &_pending_writes[0];
+	char* p = p0;
+	auto bytes_left = _pending_writes.size();
+
+	while (bytes_left > 0)
+	{
+		printf("flushing write buffer\n");
+		printf("(flush) writing %d bytes\n", bytes_left);
+		auto written = write(_fd, p, bytes_left);
+		if (written > 0)
+		{
+			printf("(flush) wrote %d bytes\n", written);
+			p += written;
+		}
+		else if (written < 0)
+		{
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+			{
+				printf("(flush) nothing written, would block\n");
+				// write would block, we're done here
+				break;
+			}
+			else
+			{
+				printf("(flush) socket write error\n");
+				// TODO: what now?
+				close();
+				throw std::runtime_error("socket error");
+			}
+		}
+	}
+
+	if (bytes_left > 0)
+	{
+		// realling the buffer
+		memcpy(p0, p, bytes_left);
+		_pending_writes.resize(bytes_left);
+
+		printf("(flush) %d bytes will be written when possible\n", bytes_left);
+	}
+
+	return static_cast<ssize_t>(p - p0);
 }
 
 
@@ -160,7 +270,7 @@ void Acceptor::accept(SocketStream* stream)
 {
 	auto sfd = stream->sfd();
 	_sockets[sfd] = stream;
-	epoll_add(_efd, sfd, stream);
+	epoll_add(_efd, sfd, stream, EPOLLIN | EPOLLET | EPOLLOUT);
 }
 
 void Acceptor::worker()
@@ -176,18 +286,9 @@ void Acceptor::worker()
 			auto stream = reinterpret_cast<SocketStream*>(event.data.ptr);
 			auto sfd = stream->sfd();
 			bool eof = false;
+			auto eventFlags = event.events;
 
-			if ((event.events & EPOLLERR) ||
-				(event.events & EPOLLHUP) ||
-				(event.events & EPOLLRDHUP) ||
-				(event.events & EPOLLPRI))
-			{
-				/* An error has occured on this fd, or the socket is not
-					ready for reading (why were we notified then?) */
-				fprintf(stderr, "epoll error\n");
-				eof = true;
-			}
-			else if (event.events & EPOLLIN)
+			if (eventFlags & EPOLLIN)
 			{
 				// this is incoming data
 				while (1)
@@ -225,9 +326,16 @@ void Acceptor::worker()
 					}
 				}
 			}
-			else if (event.events & EPOLLOUT)
+			else if (eventFlags & EPOLLOUT)
 			{
 				stream->ready();
+			}
+			else
+			{
+				/* An error has occured on this fd, or the socket is not
+					ready for reading (why were we notified then?) */
+				fprintf(stderr, "epoll error\n");
+				eof = true;
 			}
 
 
@@ -318,15 +426,9 @@ void Listener::worker()
 		{
 			const auto &event = events[i];
 			const auto sfd = event.data.fd;
-			if ((event.events & EPOLLERR) ||
-				(event.events & EPOLLHUP) ||
-				(!(event.events & EPOLLIN)))
-			{
-				printf("error with listener worker - stopping\n");
-				stop();
-				return;
-			}
-			else
+			auto eventFlags = event.events;
+
+			if (eventFlags & EPOLLIN)
 			{
 				while (1)
 				{
@@ -366,6 +468,12 @@ void Listener::worker()
 					auto stream = _streamFactory(infd);
 					acceptor.accept(stream);
 				}
+			}
+			else
+			{
+				printf("error with listener worker - stopping\n");
+				stop();
+				return;
 			}
 		}
 	}
