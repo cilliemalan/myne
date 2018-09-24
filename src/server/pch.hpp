@@ -10,6 +10,12 @@
 #include <sys/epoll.h>
 #include <errno.h>
 
+#include <openssl/conf.h>
+#include <openssl/evp.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+#include <openssl/bio.h>
+
 #include <array>
 #include <thread>
 #include <vector>

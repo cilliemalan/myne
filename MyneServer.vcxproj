@@ -43,10 +43,12 @@
   <ItemGroup>
     <ClCompile Include="src\server\Listener.cpp" />
     <ClCompile Include="src\server\main.cpp" />
+    <ClCompile Include="src\server\Tls.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\server\Listener.hpp" />
     <ClInclude Include="src\server\pch.hpp" />
+    <ClInclude Include="src\server\Tls.hpp" />
   </ItemGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -58,7 +60,7 @@
       <CppLanguageStandard>c++17</CppLanguageStandard>
     </ClCompile>
     <Link>
-      <LibraryDependencies>ssl;pthread</LibraryDependencies>
+      <LibraryDependencies>ssl;pthread;crypto</LibraryDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -71,7 +73,7 @@
       <CppLanguageStandard>c++17</CppLanguageStandard>
     </ClCompile>
     <Link>
-      <LibraryDependencies>ssl;pthread</LibraryDependencies>
+      <LibraryDependencies>ssl;pthread;crypto</LibraryDependencies>
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
