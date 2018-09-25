@@ -3,7 +3,7 @@
 
 // helper funcs
 
-static void make_socket_non_blocking(int sfd)
+static void make_non_blocking(int sfd)
 {
 	int flags = fcntl(sfd, F_GETFL, 0);
 	if (flags == -1) throw system_err();
@@ -276,6 +276,10 @@ Acceptor::Acceptor(int a)
 	_thread([this]() { worker(); })
 {
 	if (_efd == -1) throw system_err();
+
+	// pipe for signaling
+	if (pipe2(_pfd, O_NONBLOCK) == -1) throw system_err();
+	epoll_add(_efd, _pfd[0]);
 }
 
 Acceptor::~Acceptor()
@@ -297,11 +301,15 @@ void Acceptor::worker()
 	std::array<epoll_event, 16> events;
 	while (_running)
 	{
-		int numEvents = epoll_wait(_efd, &events[0], events.size(), 1000);
+		int numEvents = epoll_wait(_efd, &events[0], events.size(), -1);
 		for (int i = 0; i < numEvents && _running; i++)
 		{
 			const auto &event = events[i];
 			auto sfd = event.data.fd;
+
+			// if data from _pfd then quit
+			if (sfd == _pfd[0]) break;
+
 			auto handleriterator = _sockets.find(sfd);
 			if (handleriterator == _sockets.end())
 			{
@@ -352,9 +360,13 @@ void Acceptor::stop()
 {
 	_running = false;
 
+	if (_pfd[1]) { char a = 0; write(_pfd[1], &a, 1); }
+
 	if (_thread.joinable()) _thread.join();
 
 	if (_efd) { close(_efd); _efd = 0; }
+	if (_pfd[0]) { close(_pfd[0]); _pfd[0] = 0; }
+	if (_pfd[1]) { close(_pfd[1]); _pfd[1] = 0; }
 }
 
 
@@ -367,6 +379,12 @@ Listener::Listener(const char* address, int port, std::function<void(std::shared
 	_acceptors(initialize_acceptors()),
 	_acceptHandler(acceptHandler)
 {
+	if (_efd == -1) throw system_err();
+
+	// pipe for signaling
+	if (pipe2(_pfd, O_NONBLOCK) == -1) throw system_err();
+	epoll_add(_efd, _pfd[0]);
+
 	printf("created listener for %s:%d\n", address ? address : "<null>", port);
 }
 
@@ -385,7 +403,7 @@ int Listener::initialize_epoll()
 int Listener::initialize_socket(const char* address, int port)
 {
 	int sfd = create_and_bind(address, port);
-	make_socket_non_blocking(sfd);
+	make_non_blocking(sfd);
 	if (listen(sfd, SOMAXCONN) == -1) throw system_err();
 	epoll_add(_efd, sfd);
 	return sfd;
@@ -409,12 +427,15 @@ void Listener::worker()
 	std::array<epoll_event, 16> events;
 	while (_running)
 	{
-		auto numEvents = epoll_wait(_efd, &events[0], events.size(), 1000);
+		auto numEvents = epoll_wait(_efd, &events[0], events.size(), -1);
 		for (int i = 0; i < numEvents && _running; i++)
 		{
 			const auto &event = events[i];
 			const auto sfd = event.data.fd;
 			auto eventFlags = event.events;
+
+			// if data from _pfd then quit
+			if (sfd == _pfd[0]) break;
 
 			if (eventFlags & EPOLLIN)
 			{
@@ -450,7 +471,7 @@ void Listener::worker()
 					}
 
 					// Make the incoming socket non-blocking and forward to an acceptor
-					make_socket_non_blocking(infd);
+					make_non_blocking(infd);
 
 					auto socket = std::make_shared<LinuxSocket>(infd);
 					auto& acceptor = _acceptors[_counter++ % _acceptors.size()];
@@ -471,8 +492,11 @@ void Listener::stop()
 {
 	_running = false;
 	if (_sfd > 0) { close(_sfd); _sfd = 0; }
+	if (_pfd[1]) { char a = 0; write(_pfd[1], &a, 1); }
 
 	if (_thread.joinable()) _thread.join();
 
 	if (_efd > 0) { close(_efd); _efd = 0; }
+	if (_pfd[0]) { close(_pfd[0]); _pfd[0] = 0; }
+	if (_pfd[1]) { close(_pfd[1]); _pfd[1] = 0; }
 }

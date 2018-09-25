@@ -127,6 +127,7 @@ private:
 	void worker();
 	void stop();
 
+	int _pfd[2];
 	int _efd;
 	bool _running;
 	std::thread _thread;
@@ -151,6 +152,7 @@ private:
 	void worker();
 	void stop();
 
+	int _pfd[2];
 	int _port;
 	int _efd;
 	int _sfd;
