@@ -62,6 +62,19 @@ private:
 	std::shared_ptr<ComboSocket> _socket;
 };
 
+
+
+Listener* gl = nullptr;
+void sig_handler(int signum)
+{
+	printf("got SIGINT\n");
+	if (gl)
+	{
+		printf("stopping the thing\n");
+		gl->stop();
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	printf("starting listener\n");
@@ -70,8 +83,10 @@ int main(int argc, char *argv[])
 		producer->connect(std::make_shared<LineEchoer>(producer));
 	});
 
-	printf("press a to exit\n");
-	while (getchar() != 'a');
-	printf("exiting\n");
+	gl = &l;
+	signal(SIGINT, sig_handler);
+	l.wait();
+	gl = nullptr;
+
 	return 0;
 }

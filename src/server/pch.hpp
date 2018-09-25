@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <sys/epoll.h>
 #include <errno.h>
+#include <signal.h>
 
 #include <openssl/conf.h>
 #include <openssl/evp.h>
