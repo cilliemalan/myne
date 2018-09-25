@@ -1,20 +1,32 @@
 #include "pch.hpp"
 #include "Listener.hpp"
 
-
-class LineEcho : public SocketStream
+class LineEchoer : public SocketEventReceiver
 {
 public:
-	LineEcho(int fd) : SocketStream(fd) {}
+	LineEchoer(std::shared_ptr<ComboSocket> socket) : _socket(socket) {}
+	~LineEchoer() { printf("LineEchoer destroyed\n"); }
 
-	virtual void receive(void* data, int length)
+	virtual void read_avail()
 	{
-		auto p = static_cast<char*>(data);
-		auto bufflen = _lineBuffer.size();
-		_lineBuffer.insert(_lineBuffer.end(), p, p + length);
+		auto data = _socket->read_all();
 
-		write_lines(bufflen);
+		if (data.size())
+		{
+			auto bufflen = _lineBuffer.size();
+			_lineBuffer.insert(_lineBuffer.end(), data.begin(), data.end());
+
+			write_lines(bufflen);
+		}
 	}
+
+	virtual void write_avail() { }
+
+	virtual void closed() {
+		printf("line echo has closed\n");
+		_socket.reset();
+	}
+
 private:
 
 	void write_lines(size_t start_scan_at = 0)
@@ -27,25 +39,38 @@ private:
 			{
 				if (*pc == '\n')
 				{
-					buffered_send(&_lineBuffer[0], len);
-					memcpy(&_lineBuffer[0], &_lineBuffer[len], lbs - len);
-					_lineBuffer.resize(lbs - len);
-					write_lines();
-					break;
+					if (memcmp(&_lineBuffer[0], "close", 5) == 0)
+					{
+						printf("closing socket\n");
+						_socket->close();
+						return;
+					}
+					else
+					{
+						_socket->buffered_write(&_lineBuffer[0], len);
+						memcpy(&_lineBuffer[0], &_lineBuffer[len], lbs - len);
+						_lineBuffer.resize(lbs - len);
+						write_lines();
+						break;
+					}
 				}
 			}
 		}
 	}
 
 	std::vector<char> _lineBuffer;
+	std::shared_ptr<ComboSocket> _socket;
 };
 
 int main(int argc, char *argv[])
 {
-	std::function<SocketStream*(int)> streamFactory = [](int fd) { return new LineEcho(fd); };
-
 	printf("starting listener\n");
-	Listener l(nullptr, 80, streamFactory);
+	Listener l(nullptr, 80, [](std::shared_ptr<ComboSocket> producer)
+	{
+		//auto layer = std::make_shared<ComboSocket>(producer);
+		//producer->connect(layer);
+		producer->connect(std::make_shared<LineEchoer>(producer));
+	});
 
 	printf("press a to exit\n");
 	while (getchar() != 'a');

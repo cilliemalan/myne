@@ -1,6 +1,8 @@
 #include "pch.hpp"
 #include "Listener.hpp"
 
+// helper funcs
+
 static void make_socket_non_blocking(int sfd)
 {
 	int flags = fcntl(sfd, F_GETFL, 0);
@@ -21,7 +23,7 @@ static int create_and_bind(const char* address, int port)
 	addrinfo hints
 	{
 		AI_PASSIVE,		// flags - All interfaces
-		AF_UNSPEC,		// family - Return IPv4 and IPv6 choices
+		AF_INET,		// family - Return IPv4 choices
 		SOCK_STREAM,	// socktype - We want a TCP socket
 		IPPROTO_TCP,	// protocol - We want TCP
 		0,				// addrlen
@@ -48,6 +50,7 @@ static int create_and_bind(const char* address, int port)
 		s = bind(sfd, rp->ai_addr, rp->ai_addrlen);
 		if (!s)
 		{
+			perror("bind");
 			/* We managed to bind successfully! */
 			break;
 		}
@@ -57,7 +60,7 @@ static int create_and_bind(const char* address, int port)
 
 	if (!rp)
 	{
-		throw std::runtime_error("Could not bind");
+		throw system_err();
 	}
 
 	freeaddrinfo(result);
@@ -81,79 +84,73 @@ void epoll_add(int efd, int sfd, void* data = nullptr, uint32_t events = EPOLLIN
 }
 
 
+// ComboSocket
 
-
-SocketStream::SocketStream(int fd)
-	: _fd(fd)
+ssize_t ComboSocket::read(void* b, size_t max)
 {
-	printf("Started socket stream %d\n", fd);
-}
+	if (!_socket) return -1;
 
-SocketStream::~SocketStream()
-{
-	printf("Destroying socket stream for %d\n", _fd);
-	close();
-}
-
-void SocketStream::receive(void* data, int length)
-{
-}
-
-void SocketStream::ready()
-{
-	printf("Received write ready signal\n", _fd);
-	flush_pending_writes();
-}
-
-int SocketStream::send(void* data, int length)
-{
-	if (!valid())
+	ssize_t result;
+	do
 	{
-		throw std::runtime_error("cannot send because the socket has been closed.");
-	}
-
-	// make sure there are no pending writes
-	flush_pending_writes();
-
-	printf("writing %d bytes\n", length);
-	auto r = write(_fd, data, length);
-	if (r == -1)
-	{
-		if (errno == EAGAIN || errno == EWOULDBLOCK)
+		result = _socket->read(b, max);
+		if (result == 0)
 		{
-			printf("nothing written, would block\n");
-		}
-		else
-		{
-			printf("socket write error\n");
-			// TODO: what now?
+			// EOF
 			close();
-			throw std::runtime_error("socket error");
+			return 0;
 		}
-	}
-	else
-	{
-		printf("wrote %d bytes\n", length);
-	}
+		else if (result < 0)
+		{
+			if (errno != EAGAIN && errno != EWOULDBLOCK)
+			{
+				// error
+				close();
+				return 0;
+			}
+		}
 
-	return static_cast<int>(r);
+		// if result == 0 we must try again
+	} while (max != 0 && result == 0);
+
+	return result;
 }
 
-void SocketStream::close()
+ssize_t ComboSocket::write(void* b, size_t amt)
 {
-	if (_fd > 0)
+	if (!_socket) return -1;
+
+	ssize_t result;
+	do
 	{
-		printf("Closing socket stream %d\n", _fd);
-		::close(_fd);
-		_fd = 0;
+		result = _socket->write(b, amt);
+		if (result < 0)
+		{
+			if (errno != EAGAIN && errno != EWOULDBLOCK)
+			{
+				close();
+				return 0;
+			}
+		}
+
+		// if result == 0 we must try again
+	} while (amt != 0 && result == 0);
+
+	return result;
+}
+
+void ComboSocket::close()
+{
+	if (_socket)
+	{
+		_socket->close();
+		_socket.reset();
 	}
 }
-ssize_t SocketStream::buffered_send(void* data, size_t length)
+
+ssize_t ComboSocket::buffered_write(void* data, size_t length)
 {
-	if (!valid())
-	{
-		throw std::runtime_error("cannot send because the socket has been closed.");
-	}
+	if (!_socket) return -1;
 
 	// make sure there are no pending writes
 	flush_pending_writes();
@@ -166,43 +163,40 @@ ssize_t SocketStream::buffered_send(void* data, size_t length)
 	while (bytes_left > 0)
 	{
 		printf("writing %d bytes\n", bytes_left);
-		auto written = write(_fd, p, bytes_left);
+		auto written = write(p, bytes_left);
 		if (written > 0)
 		{
 			printf("wrote %d bytes\n", written);
 			p += written;
 			bytes_left -= written;
 		}
-		else if (written < 0)
+		else if (written == 0)
 		{
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-			{
-				printf("nothing written, would block\n");
-				// write would block, append to pending buffer
-				auto pending_buffer_size = _pending_writes.size();
-				_pending_writes.resize(pending_buffer_size + bytes_left);
-				char* dst = &_pending_writes[pending_buffer_size];
-				memcpy(dst, p, bytes_left);
+			printf("nothing written, would block\n");
+			// write would block, append to pending buffer
+			auto pending_buffer_size = _pending_writes.size();
+			_pending_writes.resize(pending_buffer_size + bytes_left);
+			char* dst = &_pending_writes[pending_buffer_size];
+			memcpy(dst, p, bytes_left);
 
-				printf("%d bytes will be written when possible\n", bytes_left);
-				break;
-			}
-			else
-			{
-				printf("socket write error\n");
-				// TODO: what now?
-				close();
-				throw std::runtime_error("socket error");
-			}
+			printf("%d bytes will be written when possible\n", bytes_left);
+			break;
+		}
+		else
+		{
+			printf("socket write error\n");
+			// TODO: what now?
+			close();
+			throw std::runtime_error("socket error");
 		}
 	}
 
 	return static_cast<ssize_t>(p - p0);
 }
 
-ssize_t SocketStream::flush_pending_writes()
+ssize_t ComboSocket::flush_pending_writes()
 {
-	if (!valid()) return -1;
+	if (!_socket) return -1;
 
 	char* p0 = &_pending_writes[0];
 	char* p = p0;
@@ -212,27 +206,25 @@ ssize_t SocketStream::flush_pending_writes()
 	{
 		printf("flushing write buffer\n");
 		printf("(flush) writing %d bytes\n", bytes_left);
-		auto written = write(_fd, p, bytes_left);
+		auto written = write(p, bytes_left);
 		if (written > 0)
 		{
 			printf("(flush) wrote %d bytes\n", written);
 			p += written;
 		}
-		else if (written < 0)
+		else if (written == 0)
 		{
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-			{
-				printf("(flush) nothing written, would block\n");
-				// write would block, we're done here
-				break;
-			}
-			else
-			{
-				printf("(flush) socket write error\n");
-				// TODO: what now?
-				close();
-				throw std::runtime_error("socket error");
-			}
+			printf("(flush) nothing written, would block\n");
+			// write would block, we're done here
+			break;
+		}
+		else
+		{
+			printf("(flush) socket write error\n");
+			// TODO: what now?
+			close();
+			signal_closed();
+			throw std::runtime_error("socket error");
 		}
 	}
 
@@ -248,8 +240,48 @@ ssize_t SocketStream::flush_pending_writes()
 	return static_cast<ssize_t>(p - p0);
 }
 
+std::vector<char> ComboSocket::read_all()
+{
+	std::vector<char> data;
+
+	bool eof;
+	ssize_t count;
+	do
+	{
+		char buf[4096];
+
+		count = read(buf, sizeof(buf));
+		if (count == -1)
+		{
+			//If errno == EAGAIN, that means we have read all data.
+			// if not something went wrong.
+			if (errno != EAGAIN)
+			{
+				perror("read");
+				eof = true;
+			}
+		}
+		else if (count == 0)
+		{
+			//End of file. (remote closed)
+			eof = true;
+		}
+		else
+		{
+			data.insert(data.end(), buf, buf + count);
+		}
+	} while (count > 0);
+
+	if (eof)
+	{
+		close();
+	}
+
+	return std::move(data);
+}
 
 
+//Acceptor
 
 Acceptor::Acceptor(int a)
 	: _efd(epoll_create1(0)),
@@ -266,11 +298,13 @@ Acceptor::~Acceptor()
 	stop();
 }
 
-void Acceptor::accept(SocketStream* stream)
+std::shared_ptr<ComboSocket> Acceptor::accept(std::shared_ptr<LinuxSocket> socket)
 {
-	auto sfd = stream->sfd();
-	_sockets[sfd] = stream;
-	epoll_add(_efd, sfd, stream, EPOLLIN | EPOLLET | EPOLLOUT);
+	auto fd = socket->fd();
+	auto combo = std::make_shared<Acceptor::LocalComboSocket>(socket, *this, fd);
+	_sockets.insert_or_assign(fd, combo);
+	epoll_add(_efd, fd, nullptr, EPOLLIN | EPOLLET | EPOLLOUT | EPOLLHUP | EPOLLRDHUP);
+	return combo;
 }
 
 void Acceptor::worker()
@@ -283,69 +317,48 @@ void Acceptor::worker()
 		for (int i = 0; i < numEvents && _running; i++)
 		{
 			const auto &event = events[i];
-			auto stream = reinterpret_cast<SocketStream*>(event.data.ptr);
-			auto sfd = stream->sfd();
+			auto sfd = event.data.fd;
+			auto handleriterator = _sockets.find(sfd);
+			if (handleriterator == _sockets.end())
+			{
+				// we got notified for a socket we don't have for some reason.
+				continue;
+			}
+
+			auto eventReceiver = handleriterator->second;
 			bool eof = false;
 			auto eventFlags = event.events;
 
-			if (eventFlags & EPOLLIN)
-			{
-				// this is incoming data
-				while (1)
-				{
-					ssize_t count;
-					char buf[4096];
 
-					count = read(sfd, buf, sizeof(buf));
-					if (count == -1)
-					{
-						/* If errno == EAGAIN, that means we have read all
-							data. So go back to the main loop. */
-						if (errno == EAGAIN)
-						{
-							break;
-						}
-						else
-						{
-							perror("read");
-							eof = true;
-						}
-					}
-					else if (count == 0)
-					{
-						/* End of file. The remote has closed the
-							connection. */
-						stream->receive(nullptr, 0);
-						eof = true;
-						break;
-					}
-					else
-					{
-						// send the data on
-						stream->receive(buf, static_cast<int>(count));
-					}
-				}
-			}
-			else if (eventFlags & EPOLLOUT)
+			if (eventFlags & EPOLLHUP || eventFlags & EPOLLRDHUP)
 			{
-				stream->ready();
+				eof = true;
 			}
 			else
 			{
-				/* An error has occured on this fd, or the socket is not
-					ready for reading (why were we notified then?) */
+				if (eventFlags & EPOLLIN)
+				{
+					eventReceiver->signal_read_avail();
+				}
+
+				if (eventFlags & EPOLLOUT)
+				{
+					eventReceiver->signal_write_avail();
+				}
+			}
+
+			if(eventFlags & ~(EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLRDHUP))
+			{
 				fprintf(stderr, "epoll error\n");
 				eof = true;
 			}
-
 
 			if (eof)
 			{
 				printf("Closed connection on descriptor %d\n", sfd);
 
-				stream->close();
-				delete stream;
-				_sockets.erase(sfd);
+				eventReceiver->signal_closed();
+				_sockets.erase(handleriterator);
 			}
 		}
 	}
@@ -367,14 +380,14 @@ void Acceptor::stop()
 }
 
 
+// Listener
 
-
-Listener::Listener(const char* address, int port, std::function<SocketStream*(int)> streamFactory)
+Listener::Listener(const char* address, int port, std::function<void(std::shared_ptr<ComboSocket>)> acceptHandler)
 	: _efd(initialize_epoll()),
 	_sfd(initialize_socket(address, port)),
 	_thread([this]() {worker(); }),
 	_acceptors(initialize_acceptors()),
-	_streamFactory(streamFactory)
+	_acceptHandler(acceptHandler)
 {
 	printf("created listener for %s:%d\n", address ? address : "<null>", port);
 }
@@ -462,11 +475,13 @@ void Listener::worker()
 							"(host=%s, port=%s)\n", infd, hbuf, sbuf);
 					}
 
-					// Make the incoming socket non-blocking and add it to the list of fds to monitor.
+					// Make the incoming socket non-blocking and forward to an acceptor
 					make_socket_non_blocking(infd);
-					Acceptor& acceptor = _acceptors[_counter++ % _acceptors.size()];
-					auto stream = _streamFactory(infd);
-					acceptor.accept(stream);
+
+					auto socket = std::make_shared<LinuxSocket>(infd);
+					auto& acceptor = _acceptors[_counter++ % _acceptors.size()];
+					auto combo = acceptor.accept(socket);
+					_acceptHandler(combo);
 				}
 			}
 			else

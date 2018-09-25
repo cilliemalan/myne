@@ -29,7 +29,9 @@ class system_err : std::runtime_error
 public:
 	system_err(int _errno)
 		: std::runtime_error(_errno > 0 ? strerror(_errno) : "unspecified error")
-	{}
+	{
+		printf("encountered error: %s", strerror(_errno));
+	}
 
 	system_err()
 		: system_err(errno)
