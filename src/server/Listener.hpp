@@ -144,13 +144,17 @@ public:
 	Listener(const Listener&) = delete;
 	Listener& operator=(const Listener&) = delete;
 
+	// stop the listener, close all connections
+	void stop();
+
+	// wait until the listener is explicitly stopped
+	void wait();
 private:
 
 	static int initialize_epoll();
 	int initialize_socket(const char* address, int port);
 	std::vector<Acceptor> initialize_acceptors();
 	void worker();
-	void stop();
 
 	int _pfd[2];
 	int _port;

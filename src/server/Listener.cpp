@@ -411,7 +411,7 @@ int Listener::initialize_socket(const char* address, int port)
 
 std::vector<Acceptor> Listener::initialize_acceptors()
 {
-	int n = 1; // std::thread::hardware_concurrency();
+	int n = std::thread::hardware_concurrency();
 	std::vector<Acceptor> result;
 	result.reserve(n);
 	for (int i = 0; i < n; i++)
@@ -499,4 +499,9 @@ void Listener::stop()
 	if (_efd > 0) { close(_efd); _efd = 0; }
 	if (_pfd[0]) { close(_pfd[0]); _pfd[0] = 0; }
 	if (_pfd[1]) { close(_pfd[1]); _pfd[1] = 0; }
+}
+
+void Listener::wait()
+{
+	if (_thread.joinable()) _thread.join();
 }
