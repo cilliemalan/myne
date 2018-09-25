@@ -30,7 +30,8 @@ public:
 	system_err(int _errno)
 		: std::runtime_error(_errno > 0 ? strerror(_errno) : "unspecified error")
 	{
-		printf("encountered error: %s", strerror(_errno));
+		auto error_message = strerror(_errno);
+		printf("encountered error: %s\n", error_message);
 	}
 
 	system_err()

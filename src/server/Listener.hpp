@@ -76,7 +76,7 @@ public:
 
 	virtual void read_avail() { signal_read_avail(); }
 	virtual void write_avail() { flush_pending_writes(); signal_write_avail(); }
-	virtual void closed() { close(); }
+	virtual void closed() { signal_closed(); }
 
 	std::vector<char> read_all();
 	ssize_t buffered_write(void* data, size_t length);
@@ -113,10 +113,10 @@ private:
 			auto sockref = _acceptor._sockets.find(_fd);
 			if (sockref != _acceptor._sockets.end())
 			{
+				ComboSocket::close();
 				ComboSocket::signal_closed();
 				_acceptor._sockets.erase(sockref);
 			}
-			ComboSocket::close();
 		}
 	private:
 		friend class Acceptor;

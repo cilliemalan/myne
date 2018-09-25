@@ -67,8 +67,6 @@ int main(int argc, char *argv[])
 	printf("starting listener\n");
 	Listener l(nullptr, 80, [](std::shared_ptr<ComboSocket> producer)
 	{
-		//auto layer = std::make_shared<ComboSocket>(producer);
-		//producer->connect(layer);
 		producer->connect(std::make_shared<LineEchoer>(producer));
 	});
 

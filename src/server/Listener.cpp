@@ -159,32 +159,26 @@ ssize_t ComboSocket::buffered_write(void* data, size_t length)
 	char* p = p0;
 	auto bytes_left = length;
 
-	printf("going to buffered send %d bytes\n", length);
 	while (bytes_left > 0)
 	{
-		printf("writing %d bytes\n", bytes_left);
 		auto written = write(p, bytes_left);
 		if (written > 0)
 		{
-			printf("wrote %d bytes\n", written);
 			p += written;
 			bytes_left -= written;
 		}
 		else if (written == 0)
 		{
-			printf("nothing written, would block\n");
 			// write would block, append to pending buffer
 			auto pending_buffer_size = _pending_writes.size();
 			_pending_writes.resize(pending_buffer_size + bytes_left);
 			char* dst = &_pending_writes[pending_buffer_size];
 			memcpy(dst, p, bytes_left);
 
-			printf("%d bytes will be written when possible\n", bytes_left);
 			break;
 		}
 		else
 		{
-			printf("socket write error\n");
 			// TODO: what now?
 			close();
 			throw std::runtime_error("socket error");
@@ -204,23 +198,18 @@ ssize_t ComboSocket::flush_pending_writes()
 
 	while (bytes_left > 0)
 	{
-		printf("flushing write buffer\n");
-		printf("(flush) writing %d bytes\n", bytes_left);
 		auto written = write(p, bytes_left);
 		if (written > 0)
 		{
-			printf("(flush) wrote %d bytes\n", written);
 			p += written;
 		}
 		else if (written == 0)
 		{
-			printf("(flush) nothing written, would block\n");
 			// write would block, we're done here
 			break;
 		}
 		else
 		{
-			printf("(flush) socket write error\n");
 			// TODO: what now?
 			close();
 			signal_closed();
@@ -233,8 +222,6 @@ ssize_t ComboSocket::flush_pending_writes()
 		// realling the buffer
 		memcpy(p0, p, bytes_left);
 		_pending_writes.resize(bytes_left);
-
-		printf("(flush) %d bytes will be written when possible\n", bytes_left);
 	}
 
 	return static_cast<ssize_t>(p - p0);
@@ -289,12 +276,10 @@ Acceptor::Acceptor(int a)
 	_thread([this]() { worker(); })
 {
 	if (_efd == -1) throw system_err();
-	printf("Created acceptor\n");
 }
 
 Acceptor::~Acceptor()
 {
-	printf("Destroying acceptor\n");
 	stop();
 }
 
@@ -309,7 +294,6 @@ std::shared_ptr<ComboSocket> Acceptor::accept(std::shared_ptr<LinuxSocket> socke
 
 void Acceptor::worker()
 {
-	printf("started acceptor worker\n");
 	std::array<epoll_event, 16> events;
 	while (_running)
 	{
@@ -362,21 +346,15 @@ void Acceptor::worker()
 			}
 		}
 	}
-
-	printf("exit acceptor worker\n");
 }
 
 void Acceptor::stop()
 {
-	printf("stopping acceptor\n");
-
 	_running = false;
 
 	if (_thread.joinable()) _thread.join();
 
 	if (_efd) { close(_efd); _efd = 0; }
-
-	printf("stopped acceptor\n");
 }
 
 
@@ -394,7 +372,6 @@ Listener::Listener(const char* address, int port, std::function<void(std::shared
 
 Listener::~Listener()
 {
-	printf("destroying listener\n");
 	stop();
 }
 
@@ -429,8 +406,6 @@ std::vector<Acceptor> Listener::initialize_acceptors()
 
 void Listener::worker()
 {
-	printf("starting listener worker\n");
-
 	std::array<epoll_event, 16> events;
 	while (_running)
 	{
@@ -471,8 +446,7 @@ void Listener::worker()
 						sbuf, sizeof sbuf,
 						NI_NUMERICHOST | NI_NUMERICSERV))
 					{
-						printf("Accepted connection on descriptor %d "
-							"(host=%s, port=%s)\n", infd, hbuf, sbuf);
+						//printf("Accepted connection on descriptor %d " "(host=%s, port=%s)\n", infd, hbuf, sbuf);
 					}
 
 					// Make the incoming socket non-blocking and forward to an acceptor
@@ -486,24 +460,19 @@ void Listener::worker()
 			}
 			else
 			{
-				printf("error with listener worker - stopping\n");
 				stop();
 				return;
 			}
 		}
 	}
-
-	printf("listener worker exit\n");
 }
 
 void Listener::stop()
 {
-	printf("stopping listener\n");
 	_running = false;
 	if (_sfd > 0) { close(_sfd); _sfd = 0; }
 
 	if (_thread.joinable()) _thread.join();
 
 	if (_efd > 0) { close(_efd); _efd = 0; }
-	printf("stopped listener\n");
 }
