@@ -1,5 +1,9 @@
 #include "pch.hpp"
 #include "Listener.hpp"
+#include "Tls.hpp"
+
+// telnet localhost 9080
+// openssl s_client -connect localhost:443
 
 class LineEchoer : public SocketEventReceiver
 {
@@ -63,30 +67,43 @@ private:
 };
 
 
+std::vector<Listener*> listeners;
 
-Listener* gl = nullptr;
 void sig_handler(int signum)
 {
 	printf("got SIGINT\n");
-	if (gl)
+	if (listeners.size())
 	{
 		printf("stopping the thing\n");
-		gl->stop();
+		for (auto l : listeners) l->stop();
 	}
 }
 
 int main(int argc, char *argv[])
 {
+	TlsContext tls("svr.cer", "svr.key");
+
+
 	printf("starting listener\n");
-	Listener l(nullptr, 80, [](std::shared_ptr<ComboSocket> producer)
+	Listener l1(nullptr, 443, [&tls](std::shared_ptr<ComboSocket> producer)
+	{
+		auto tls_socket = std::make_shared<TlsComboSocket>(producer, tls);
+		producer->connect(tls_socket);
+
+		tls_socket->connect(std::make_shared<LineEchoer>(tls_socket));
+	});
+
+	Listener l2(nullptr, 80, [&tls](std::shared_ptr<ComboSocket> producer)
 	{
 		producer->connect(std::make_shared<LineEchoer>(producer));
 	});
 
-	gl = &l;
+	listeners.push_back(&l1);
+	listeners.push_back(&l2);
 	signal(SIGINT, sig_handler);
-	l.wait();
-	gl = nullptr;
+	l1.wait();
+	l2.wait();
+	listeners.clear();
 
 	return 0;
 }
