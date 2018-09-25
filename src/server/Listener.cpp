@@ -391,6 +391,7 @@ Listener::Listener(const char* address, int port, std::function<void(std::shared
 Listener::~Listener()
 {
 	stop();
+	wait();
 }
 
 int Listener::initialize_epoll()
@@ -481,24 +482,22 @@ void Listener::worker()
 			}
 			else
 			{
-				stop();
-				return;
+				_running = false;
+				break;
 			}
 		}
 	}
+
+	if (_sfd > 0) { close(_sfd); _sfd = 0; }
+	if (_efd > 0) { close(_efd); _efd = 0; }
+	if (_pfd[0]) { close(_pfd[0]); _pfd[0] = 0; }
+	if (_pfd[1]) { close(_pfd[1]); _pfd[1] = 0; }
 }
 
 void Listener::stop()
 {
 	_running = false;
-	if (_sfd > 0) { close(_sfd); _sfd = 0; }
 	if (_pfd[1]) { char a = 0; write(_pfd[1], &a, 1); }
-
-	if (_thread.joinable()) _thread.join();
-
-	if (_efd > 0) { close(_efd); _efd = 0; }
-	if (_pfd[0]) { close(_pfd[0]); _pfd[0] = 0; }
-	if (_pfd[1]) { close(_pfd[1]); _pfd[1] = 0; }
 }
 
 void Listener::wait()
