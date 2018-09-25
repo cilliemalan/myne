@@ -2,6 +2,9 @@
 #include "Listener.hpp"
 #include "Tls.hpp"
 
+
+// TlsContext
+
 TlsContext::TlsContext(const char* certificate, const char* key)
 {
 	SSL_library_init();
@@ -33,7 +36,12 @@ TlsContext::TlsContext(const char* certificate, const char* key)
 		throw std::runtime_error("SSL_CTX_check_private_key failed");
 	}
 
-	SSL_CTX_set_options(ctx, SSL_OP_ALL | SSL_OP_NO_SSLv2 | SSL_OP_NO_SSLv3);
+	// disable anything below tls 1.2
+	SSL_CTX_set_options(ctx, SSL_PROTOCOL_FLAGS);
+	SSL_CTX_set_cipher_list(ctx, SSL_CIPHER_LIST);
+
+	_ctx = ctx;
+
 }
 
 TlsContext::~TlsContext()
@@ -44,11 +52,9 @@ TlsContext::~TlsContext()
 
 
 
-
-
-
-TlsSocketStream::TlsSocketStream(int sfd, TlsContext &ctx)
-	:SocketStream(sfd)
+TlsComboSocket::TlsComboSocket(std::shared_ptr<Socket> base, const TlsContext &ctx)
+	:ComboSocket(base),
+	_ctx(ctx)
 {
 	_rbio = BIO_new(BIO_s_mem());
 	_wbio = BIO_new(BIO_s_mem());
@@ -62,12 +68,304 @@ TlsSocketStream::TlsSocketStream(int sfd, TlsContext &ctx)
 	SSL_set_bio(_ssl, _rbio, _wbio);
 }
 
-TlsSocketStream::~TlsSocketStream()
+ssize_t TlsComboSocket::read(void* b, size_t max)
 {
+	auto amt = SSL_read(_ssl, b, static_cast<int>(max));
+	if (amt == 0)
+	{
+		// act like a would-block
+		return -1;
+	}
+	else if (amt < 0)
+	{
+		auto status = SSL_get_error(_ssl, amt);
 
+		if (status == SSL_ERROR_WANT_READ ||
+			status == SSL_ERROR_WANT_WRITE ||
+			status == SSL_ERROR_NONE)
+		{
+			// act like wouldblock
+			return -1;
+		}
+		else
+		{
+			printf("SSL read error: read from read bio failed\n");
+			close();
+			return 0;
+		}
+	}
+
+	return amt;
 }
 
-void TlsSocketStream::initialize()
+ssize_t TlsComboSocket::write(void* b, size_t amt)
 {
+	auto amtwritten = SSL_write(_ssl, b, static_cast<int>(amt));
 
+	if (amtwritten > 0)
+	{
+		// force the socket to write even if it may not be possible
+		write_avail();
+		return amtwritten;
+	}
+	else
+	{
+		auto status = SSL_get_error(_ssl, amtwritten);
+
+		if (status == SSL_ERROR_WANT_READ ||
+			status == SSL_ERROR_WANT_WRITE ||
+			status == SSL_ERROR_NONE)
+		{
+			// act like wouldblock
+			return -1;
+		}
+		else
+		{
+			printf("SSL read error: failed to fill write BIO\n");
+			close();
+			return 0;
+		}
+	}
 }
+
+void TlsComboSocket::close()
+{
+	ComboSocket::close();
+}
+
+void TlsComboSocket::read_avail()
+{
+	for (;;)
+	{
+		char buf[4096];
+
+		auto amt = socket_read(buf, sizeof(buf));
+
+		if (amt <= 0)
+		{
+			// no data available
+			break;
+		}
+		else
+		{
+			char* p = buf;
+			while (amt > 0)
+			{
+				auto consumed = BIO_write(_rbio, p, static_cast<int>(amt));
+				if (consumed < 0)
+				{
+					printf("SSL read error: BIO write to read bio failed\n");
+					close();
+					return;
+				}
+				else if (consumed == 0 && amt > 0)
+				{
+					printf("SSL read error: failed to fill read BIO\n");
+					close();
+					return;
+				}
+
+				p += consumed;
+				amt -= consumed;
+			}
+		}
+	}
+
+	// SSL state machine
+	if (!SSL_is_init_finished(_ssl))
+	{
+		auto r = SSL_accept(_ssl);
+		auto status = SSL_get_error(_ssl, r);
+
+		if (status == SSL_ERROR_WANT_READ)
+		{
+			// need to wait for more data
+			return;
+		}
+		else if (status == SSL_ERROR_WANT_WRITE)
+		{
+			// will write on next write cycle
+			return;
+		}
+		else if (status == SSL_ERROR_NONE)
+		{
+			// init may be done already
+		}
+		else
+		{
+			printf("SSL read error: unexpected result from accept\n");
+			close();
+			return;
+		}
+	}
+
+	if (SSL_is_init_finished(_ssl))
+	{
+		signal_read_avail();
+		signal_write_avail();
+	}
+}
+
+void TlsComboSocket::write_avail()
+{
+	flush_pending_writes();
+
+	bool wouldblock = false;
+
+	// write as much data as we can from what's available in the write BIO
+	char write_buffer[4096];
+	int amt_avail;
+	do {
+		amt_avail = BIO_read(_wbio, write_buffer, sizeof(write_buffer));
+		if (amt_avail > 0)
+		{
+			auto amount_flushed = socket<ComboSocket>()->buffered_write(write_buffer, amt_avail);
+			if (amount_flushed < amt_avail)
+			{
+				// the write buffered, wait for the next write cycle
+				wouldblock = true;
+				return;
+			}
+		}
+		else if (BIO_should_retry(_wbio))
+		{
+			// TODO: ??
+		}
+		else
+		{
+			printf("SSL read error: BIO read from write bio failed\n");
+			close();
+			return;
+		}
+	} while (amt_avail > 0);
+
+	if (!wouldblock && SSL_is_init_finished(_ssl))
+	{
+		// the write bio has been flushed, signal that a write is available
+		signal_write_avail();
+	}
+}
+
+void TlsComboSocket::closed()
+{
+	ComboSocket::closed();
+}
+
+
+
+/*
+void TlsSocketStream::receive(void* data, int length)
+{
+	char buf[4096];
+	char* p0 = static_cast<char*>(data);
+	char* p = p0;
+	auto bytes_left = length;
+
+	while (bytes_left > 0)
+	{
+		auto written = BIO_write(_rbio, p, bytes_left);
+
+		if (written < 0)
+		{
+			throw std::runtime_error("SSL failed to read");
+		}
+
+		p += written;
+		bytes_left -= written;
+
+		if (!SSL_is_init_finished(_ssl))
+		{
+			auto r = SSL_accept(_ssl);
+			auto status = SSL_get_error(_ssl, r);
+
+			switch (status)
+			{
+				case SSL_ERROR_WANT_READ:
+					continue;
+				case SSL_ERROR_WANT_WRITE:
+				{
+					int n;
+					do {
+						n = BIO_read(_wbio, buf, sizeof(buf));
+						if (n > 0)
+						{
+							buffered_send(buf, n);
+						}
+						else if (BIO_should_retry(_wbio))
+						{
+							// TODO: ??
+							continue;
+						}
+						else
+						{
+							throw std::runtime_error("unsupported bio state");
+						}
+					} while (n > 0);
+				}
+					break;
+				case SSL_ERROR_NONE:
+					break;
+				default:
+					throw std::runtime_error("SSL read failed");
+			}
+		}
+
+		if (SSL_is_init_finished(_ssl))
+		{
+			// read unencrypted data while possible
+			int nread;
+			do {
+				nread = SSL_read(_ssl, buf, sizeof(buf));
+				if (nread > 0)
+				{
+					_next.receive(buf, nread);
+				}
+			} while (nread > 0);
+
+
+			// check if there are pending writes
+			auto status = SSL_get_error(_ssl, nread);
+			switch (status)
+			{
+			case SSL_ERROR_WANT_READ:
+				continue;
+			case SSL_ERROR_WANT_WRITE:
+			{
+				int n;
+				do {
+					n = BIO_read(_wbio, buf, sizeof(buf));
+					if (n > 0)
+					{
+						buffered_send(buf, n);
+					}
+					else if (BIO_should_retry(_wbio))
+					{
+						// TODO: ??
+						continue;
+					}
+					else
+					{
+						throw std::runtime_error("unsupported bio state");
+					}
+				} while (n > 0);
+			}
+			break;
+			case SSL_ERROR_NONE:
+				break;
+			default:
+				throw std::runtime_error("SSL read failed");
+			}
+		}
+	}
+}
+
+void TlsSocketStream::close()
+{
+	SocketStream::close();
+}
+
+int TlsSocketStream::send(void* data, int length)
+{
+	return 0;
+}
+*/
