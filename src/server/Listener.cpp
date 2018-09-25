@@ -88,7 +88,7 @@ void epoll_add(int efd, int sfd, void* data = nullptr, uint32_t events = EPOLLIN
 
 ssize_t ComboSocket::read(void* b, size_t max)
 {
-	if (!_socket) return -1;
+	if (!_socket) return 0;
 
 	ssize_t result;
 	do
@@ -118,7 +118,7 @@ ssize_t ComboSocket::read(void* b, size_t max)
 
 ssize_t ComboSocket::write(void* b, size_t amt)
 {
-	if (!_socket) return -1;
+	if (!_socket) return 0;
 
 	ssize_t result;
 	do
@@ -240,13 +240,7 @@ std::vector<char> ComboSocket::read_all()
 		count = read(buf, sizeof(buf));
 		if (count == -1)
 		{
-			//If errno == EAGAIN, that means we have read all data.
-			// if not something went wrong.
-			if (errno != EAGAIN)
-			{
-				perror("read");
-				eof = true;
-			}
+			// we have read all data.
 		}
 		else if (count == 0)
 		{
@@ -287,10 +281,11 @@ Acceptor::~Acceptor()
 	stop();
 }
 
-std::shared_ptr<ComboSocket> Acceptor::accept(std::shared_ptr<LinuxSocket> socket)
+std::shared_ptr<ComboSocket> Acceptor::accept(std::shared_ptr<LinuxSocket> socket, std::function<void(std::shared_ptr<ComboSocket>)> acceptHandler)
 {
 	auto fd = socket->fd();
 	auto combo = std::make_shared<Acceptor::LocalComboSocket>(socket, *this, fd);
+	acceptHandler(combo);
 	_sockets.insert_or_assign(fd, combo);
 	epoll_add(_efd, fd, nullptr, EPOLLIN | EPOLLET | EPOLLOUT | EPOLLHUP | EPOLLRDHUP);
 	return combo;
@@ -476,8 +471,7 @@ void Listener::worker()
 
 					auto socket = std::make_shared<LinuxSocket>(infd);
 					auto& acceptor = _acceptors[_counter++ % _acceptors.size()];
-					auto combo = acceptor.accept(socket);
-					_acceptHandler(combo);
+					auto combo = acceptor.accept(socket, _acceptHandler);
 				}
 			}
 			else

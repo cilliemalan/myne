@@ -82,8 +82,12 @@ public:
 	ssize_t buffered_write(void* data, size_t length);
 	ssize_t buffered_write(std::vector<char> buff) { return buffered_write(&buff[0], buff.size()); }
 protected:
-private:
 	ssize_t flush_pending_writes();
+
+	std::shared_ptr<Socket> socket() { return _socket; }
+	template<typename T>
+	std::shared_ptr<T> socket() { static_assert(std::is_base_of<Socket, T>()); return std::dynamic_pointer_cast<T>(_socket); }
+private:
 
 	std::shared_ptr<Socket> _socket;
 	std::vector<char> _pending_writes;
@@ -99,7 +103,7 @@ public:
 	Acceptor& operator=(const Acceptor&) = delete;
 	~Acceptor();
 
-	std::shared_ptr<ComboSocket> accept(std::shared_ptr<LinuxSocket>);
+	std::shared_ptr<ComboSocket> accept(std::shared_ptr<LinuxSocket>, std::function<void(std::shared_ptr<ComboSocket>)> acceptHandler);
 private:
 
 	class LocalComboSocket : public ComboSocket
