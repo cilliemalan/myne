@@ -6,7 +6,7 @@ class SocketEventProducer;
 class SocketEventReceiver
 {
 public:
-	virtual ~SocketEventReceiver() { printf("SocketEventReceiver destroyed\n"); }
+	virtual ~SocketEventReceiver() { }
 
 protected:
 	virtual void read_avail() = 0;
@@ -20,7 +20,7 @@ protected:
 class SocketEventProducer
 {
 public:
-	virtual ~SocketEventProducer() { printf("SocketEventProducer destroyed\n"); }
+	virtual ~SocketEventProducer() { }
 
 	virtual void connect(std::shared_ptr<SocketEventReceiver> receiver) { _receiver = receiver; }
 protected:
@@ -38,7 +38,7 @@ class Socket
 {
 public:
 	Socket() { }
-	virtual ~Socket() { close(); printf("Socket destroyed\n"); }
+	virtual ~Socket() { close(); }
 	Socket(const Socket&) = delete;
 	Socket& operator=(const Socket&) = delete;
 
@@ -52,7 +52,7 @@ class LinuxSocket : public Socket
 {
 public:
 	LinuxSocket(int fd) : _fd(fd) { }
-	~LinuxSocket() { printf("LinuxSocket destroyed\n"); }
+	~LinuxSocket() { }
 
 	virtual ssize_t read(void* b, size_t max) { return ::read(_fd, b, max); }
 	virtual ssize_t write(void* b, size_t amt) { return ::write(_fd, b, amt); }
@@ -68,7 +68,7 @@ class ComboSocket : public SocketEventReceiver, public SocketEventProducer, publ
 {
 public:
 	ComboSocket(std::shared_ptr<Socket> socket)  :_socket(socket) {}
-	virtual ~ComboSocket() { printf("ComboSocket destroyed\n"); }
+	virtual ~ComboSocket() { }
 
 	virtual ssize_t read(void* b, size_t max);
 	virtual ssize_t write(void* b, size_t amt);
@@ -110,7 +110,7 @@ private:
 	{
 	public:
 		LocalComboSocket(std::shared_ptr<Socket> socket, Acceptor &acceptor, int fd) : ComboSocket(socket), _acceptor(acceptor), _fd(fd) {}
-		~LocalComboSocket() { printf("LocalComboSocket destroyed\n"); }
+		~LocalComboSocket() { }
 
 		virtual void close()
 		{
