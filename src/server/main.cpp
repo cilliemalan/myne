@@ -20,7 +20,7 @@ void sig_handler(int signum)
 
 int main(int argc, char *argv[])
 {
-	TlsContext tls("svr.cer", "svr.key");
+	TlsContext tls("localhost.cer", "localhost.key");
 	HttpServer http;
 
 

@@ -65,8 +65,11 @@
     <ClInclude Include="src\server\Tls.hpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="src\server\svr.cer" />
-    <None Include="src\server\svr.key" />
+    <None Include="src\server\ca.cer" />
+    <None Include="src\server\localhost.cer" />
+    <None Include="src\server\localhost.key" />
+    <None Include="src\server\localtest.cer" />
+    <None Include="src\server\localtest.key" />
   </ItemGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
