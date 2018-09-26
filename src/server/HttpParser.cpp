@@ -42,6 +42,7 @@ HttpParser::HttpParser(HttpParserCallbacks callbacks, HttpParserType type)
 	:_callbacks(callbacks), _pvt(new http_parser)
 {
 	http_parser_init(_parser, static_cast<http_parser_type>(type));
+	_parser->data = this;
 }
 
 HttpParser::~HttpParser()
@@ -58,7 +59,7 @@ void HttpParser::flush_on_transition()
 {
 	if (_state == State::Url)
 	{
-		if (_callbacks.url) _callbacks.url(_last_value);
+		if (_callbacks.url) _callbacks.url(http_method_str(static_cast<http_method>(_parser->method)), _last_value);
 		_last_header.erase();
 		_last_value.erase();
 	}
@@ -68,7 +69,7 @@ void HttpParser::flush_on_transition()
 		_last_header.erase();
 		_last_value.erase();
 	}
-	else if (_state == State::HeaderValue)
+	else if (_state == State::Header)
 	{
 		if (_callbacks.header) _callbacks.header(_last_header, _last_value);
 		_last_header.erase();
@@ -102,7 +103,7 @@ int HttpParser::on_header_field(const char *at, size_t length)
 {
 	flush_on_transition();
 	append_to(_last_header, at, length);
-	_state = State::HeaderField;
+	_state = State::Header;
 	return 0;
 }
 

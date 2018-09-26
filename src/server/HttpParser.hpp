@@ -2,7 +2,7 @@
 
 struct HttpParserCallbacks
 {
-	std::function<void(std::string)> url;
+	std::function<void(std::string method, std::string url)> url;
 	std::function<void(int, std::string)> status;
 	std::function<void(std::string name, std::string value)> header;
 	std::function<void()> headers_complete;
@@ -60,7 +60,7 @@ http_cb      on_chunk_complete;
 
 	enum class State
 	{
-		None, Status, Url, HeaderField, HeaderValue, Body
+		None, Status, Url, Header, Body
 	};
 	
 	State _state;
