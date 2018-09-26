@@ -42,6 +42,7 @@ private:
 
 	// common headers
 	std::string _host;
+	bool closeConnection;
 
 	bool _done;
 	HttpServer &_http;

@@ -73,6 +73,13 @@ void HttpHandler::on_header(std::string name, std::string value)
 	{
 		_host = value;
 	}
+	else if (name == "Connection")
+	{
+		if (value == "Close")
+		{
+			closeConnection = true;
+		}
+	}
 }
 
 void HttpHandler::on_headers_complete()
@@ -87,10 +94,14 @@ void HttpHandler::on_body(const char* b, size_t l)
 
 void HttpHandler::on_message_complete()
 {
-	std::string output("HTTP/1.1 200 OK\r\n\r\nGreat!");
+	std::string output("HTTP/1.1 200 OK\r\nConnection: Keep-Alive\r\nContent-Length: 6\r\n\r\nGreat!");
 	std::vector<char> v(output.begin(), output.end());
 	_socket->buffered_write(v);
-	_done = true;
+
+	if (closeConnection)
+	{
+		_done = true;
+	}
 }
 
 
