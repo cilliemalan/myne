@@ -74,9 +74,9 @@ public:
 	virtual ssize_t write(void* b, size_t amt);
 	virtual void close();
 
-	virtual void read_avail() { signal_read_avail(); }
-	virtual void write_avail() { flush_pending_writes(); signal_write_avail(); }
-	virtual void closed() { signal_closed(); }
+	virtual void read_avail();
+	virtual void write_avail();
+	virtual void closed();
 
 	std::vector<char> read_all();
 	ssize_t buffered_write(void* data, size_t length);

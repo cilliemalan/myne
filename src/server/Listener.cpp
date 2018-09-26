@@ -47,6 +47,10 @@ static int create_and_bind(const char* address, int port)
 			continue;
 		}
 
+		// reuse address if needed
+		int yes = 1;
+		setsockopt(sfd, 6, SO_REUSEADDR, &yes, sizeof(yes));
+
 		s = bind(sfd, rp->ai_addr, rp->ai_addrlen);
 		if (!s)
 		{
@@ -148,6 +152,27 @@ void ComboSocket::close()
 	}
 }
 
+
+void ComboSocket::read_avail()
+{
+	signal_read_avail();
+}
+
+void ComboSocket::write_avail()
+{
+	flush_pending_writes();
+
+	if (_pending_writes.size() == 0)
+	{
+		signal_write_avail();
+	}
+}
+
+void ComboSocket::closed()
+{
+	signal_closed();
+}
+
 ssize_t ComboSocket::buffered_write(void* data, size_t length)
 {
 	if (!_socket) return -1;
@@ -217,11 +242,16 @@ ssize_t ComboSocket::flush_pending_writes()
 		}
 	}
 
-	if (bytes_left > 0)
+	if (p0 != p)
 	{
-		// realling the buffer
-		memcpy(p0, p, bytes_left);
+		if (bytes_left > 0)
+		{
+			// realling the buffer
+			memcpy(p0, p, bytes_left);
+		}
+
 		_pending_writes.resize(bytes_left);
+		_pending_writes.shrink_to_fit();
 	}
 
 	return static_cast<ssize_t>(p - p0);
