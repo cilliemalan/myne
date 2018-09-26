@@ -24,8 +24,6 @@ public:
 		}
 	}
 
-	virtual void write_avail() { }
-
 	virtual void closed() {
 		printf("line echo has closed\n");
 		_socket.reset();

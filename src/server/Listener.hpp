@@ -9,9 +9,9 @@ public:
 	virtual ~SocketEventReceiver() { }
 
 protected:
-	virtual void read_avail() = 0;
-	virtual void write_avail() = 0;
-	virtual void closed() = 0;
+	virtual void read_avail() {}
+	virtual void write_avail() {}
+	virtual void closed() {}
 
 	friend class SocketEventProducer;
 };
