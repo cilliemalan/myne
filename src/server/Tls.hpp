@@ -42,23 +42,3 @@ private:
 	BIO *_rbio;
 	BIO *_wbio;
 };
-
-/*
-class TlsSocketStream : public SocketStream
-{
-public:
-	TlsSocketStream(int sfd, TlsContext &ctx, SocketStream &next);
-	~TlsSocketStream();
-
-	virtual void receive(void* data, int length);
-	virtual void close();
-private:
-	void initialize();
-	virtual int send(void* data, int length);
-
-	SSL* _ssl;
-	BIO *_rbio; // SSL reads from, we write to.
-	BIO *_wbio; // SSL writes to, we read from.
-	SocketStream &_next;
-};
-*/
