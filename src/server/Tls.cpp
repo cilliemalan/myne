@@ -2,6 +2,18 @@
 #include "Listener.hpp"
 #include "Tls.hpp"
 
+void BIO_advance(BIO* bio, size_t howfar)
+{
+	if (howfar > 0)
+	{
+		BIO_clear_retry_flags(bio);
+		BUF_MEM* ptr;
+		BIO_get_mem_ptr(bio, &ptr);
+		ptr->data += howfar;
+		ptr->length -= howfar;
+	}
+}
+
 
 // TlsContext
 
@@ -66,6 +78,13 @@ TlsComboSocket::TlsComboSocket(std::shared_ptr<Socket> base, const TlsContext &c
 
 	SSL_set_accept_state(_ssl);
 	SSL_set_bio(_ssl, _rbio, _wbio);
+}
+
+TlsComboSocket::~TlsComboSocket()
+{
+	if (_rbio) { BIO_free(_rbio); _rbio = nullptr; }
+	if (_wbio) { BIO_free(_wbio); _wbio = nullptr; }
+	// if (_ssl) { SSL_free(_ssl); _ssl = nullptr; }
 }
 
 ssize_t TlsComboSocket::read(void* b, size_t max)
@@ -210,26 +229,34 @@ void TlsComboSocket::write_avail()
 {
 	flush_pending_writes();
 
-	bool wouldblock = false;
-
-	// write as much data as we can from what's available in the write BIO
-	char write_buffer[4096];
-	int amt_avail;
-	do {
-		amt_avail = BIO_read(_wbio, write_buffer, sizeof(write_buffer));
+	bool wouldblock;
+	size_t amt_avail;
+	do
+	{
+		// write as much data as we can from what's available in the write BIO
+		void* ptr;
+		amt_avail = BIO_get_mem_data(_wbio, &ptr);
 		if (amt_avail > 0)
 		{
-			auto amount_flushed = socket<ComboSocket>()->buffered_write(write_buffer, amt_avail);
-			if (amount_flushed < amt_avail)
+			auto amount_written = socket<ComboSocket>()->write(ptr, amt_avail);
+			if (amount_written > 0)
 			{
-				// the write buffered, wait for the next write cycle
-				wouldblock = true;
+				BIO_advance(_wbio, amount_written);
+			}
+			else if (amount_written == 0)
+			{
+				close();
 				return;
 			}
+			else
+			{
+				wouldblock = true;
+			}
 		}
-		else if (BIO_should_retry(_wbio))
+		else if (amt_avail == 0)
 		{
-			// TODO: ??
+			wouldblock = false;
+			break;
 		}
 		else
 		{
@@ -237,7 +264,7 @@ void TlsComboSocket::write_avail()
 			close();
 			return;
 		}
-	} while (amt_avail > 0);
+	} while (!wouldblock || amt_avail > 0);
 
 	if (!wouldblock && SSL_is_init_finished(_ssl))
 	{

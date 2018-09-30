@@ -22,6 +22,7 @@ class TlsComboSocket : public ComboSocket
 {
 public:
 	TlsComboSocket(std::shared_ptr<Socket> base, const TlsContext &ctx);
+	~TlsComboSocket();
 
 	virtual ssize_t read(void* b, size_t max);
 	virtual ssize_t write(void* b, size_t amt);
