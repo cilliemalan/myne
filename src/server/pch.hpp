@@ -10,12 +10,20 @@
 #include <sys/epoll.h>
 #include <errno.h>
 #include <signal.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 
 #include <openssl/conf.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <openssl/bio.h>
+#include <openssl/crypto.h>
+#include <openssl/x509.h>
+#include <openssl/x509v3.h>
+#include <openssl/objects.h>
+#include <openssl/ts.h>
+#include <openssl/pkcs7.h>
 
 #include <array>
 #include <thread>

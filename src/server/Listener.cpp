@@ -49,17 +49,30 @@ static int create_and_bind(const char* address, int port)
 
 		// reuse address if needed
 		int yes = 1;
-		setsockopt(sfd, 6, SO_REUSEADDR, &yes, sizeof(yes));
-
-		s = bind(sfd, rp->ai_addr, rp->ai_addrlen);
-		if (!s)
+		if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0)
 		{
-			perror("bind");
-			/* We managed to bind successfully! */
-			break;
+			perror("setsockopt");
+			close(sfd);
+			continue;
+		}
+		if (setsockopt(sfd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes)) < 0)
+		{
+			perror("setsockopt");
+			close(sfd);
+			continue;
 		}
 
-		close(sfd);
+		s = bind(sfd, rp->ai_addr, rp->ai_addrlen);
+		if (s)
+		{
+			perror("bind");
+			close(sfd);
+			continue;
+		}
+		else
+		{
+			break;
+		}
 	}
 
 	if (!rp)
@@ -92,53 +105,30 @@ void epoll_add(int efd, int sfd, void* data = nullptr, uint32_t events = EPOLLIN
 
 ssize_t ComboSocket::read(void* b, size_t max)
 {
-	if (!_socket) return 0;
+	if (!_socket || !b || !max) return 0;
 
-	ssize_t result;
-	do
+	ssize_t result = _socket->read(b, max);
+
+	if (result == 0)
 	{
-		result = _socket->read(b, max);
-		if (result == 0)
-		{
-			// EOF
-			close();
-			return 0;
-		}
-		else if (result < 0)
-		{
-			if (errno != EAGAIN && errno != EWOULDBLOCK)
-			{
-				// error
-				close();
-				return 0;
-			}
-		}
-
-		// if result == 0 we must try again
-	} while (max != 0 && result == 0);
+		close();
+		return 0;
+	}
 
 	return result;
 }
 
-ssize_t ComboSocket::write(void* b, size_t amt)
+ssize_t ComboSocket::write(const void* b, size_t amt)
 {
-	if (!_socket) return 0;
+	if (!_socket || !b || !amt) return 0;
 
-	ssize_t result;
-	do
+	ssize_t result = _socket->write(b, amt);
+
+	if (result == 0)
 	{
-		result = _socket->write(b, amt);
-		if (result < 0)
-		{
-			if (errno != EAGAIN && errno != EWOULDBLOCK)
-			{
-				close();
-				return 0;
-			}
-		}
-
-		// if result == 0 we must try again
-	} while (amt != 0 && result == 0);
+		close();
+		return 0;
+	}
 
 	return result;
 }
@@ -173,15 +163,16 @@ void ComboSocket::closed()
 	signal_closed();
 }
 
-ssize_t ComboSocket::buffered_write(void* data, size_t length)
+ssize_t ComboSocket::buffered_write(const void* data, size_t length)
 {
 	if (!_socket) return -1;
+	if (!length) return 0;
 
 	// make sure there are no pending writes
 	flush_pending_writes();
 
-	char* p0 = static_cast<char*>(data);
-	char* p = p0;
+	const char* p0 = static_cast<const char*>(data);
+	const char* p = p0;
 	auto bytes_left = length;
 
 	while (bytes_left > 0)
@@ -192,7 +183,7 @@ ssize_t ComboSocket::buffered_write(void* data, size_t length)
 			p += written;
 			bytes_left -= written;
 		}
-		else if (written == 0)
+		else if (written < 0)
 		{
 			// write would block, append to pending buffer
 			auto pending_buffer_size = _pending_writes.size();
@@ -204,7 +195,7 @@ ssize_t ComboSocket::buffered_write(void* data, size_t length)
 		}
 		else
 		{
-			// TODO: what now?
+			// close the socket
 			close();
 			throw std::runtime_error("socket error");
 		}
@@ -228,14 +219,14 @@ ssize_t ComboSocket::flush_pending_writes()
 		{
 			p += written;
 		}
-		else if (written == 0)
+		else if (written < 0)
 		{
 			// write would block, we're done here
 			break;
 		}
 		else
 		{
-			// TODO: what now?
+			// socket broken or closed
 			close();
 			signal_closed();
 			throw std::runtime_error("socket error");
@@ -268,7 +259,7 @@ std::vector<char> ComboSocket::read_all()
 		char buf[4096];
 
 		count = read(buf, sizeof(buf));
-		if (count == -1)
+		if (count < 0)
 		{
 			// we have read all data.
 		}
@@ -294,8 +285,9 @@ std::vector<char> ComboSocket::read_all()
 
 //Acceptor
 
-Acceptor::Acceptor(int a)
-	: _efd(epoll_create1(0)),
+Acceptor::Acceptor(int nr)
+	: _nr(nr),
+	_efd(epoll_create1(0)),
 	_running(true),
 	_thread([this]() { worker(); })
 {
@@ -364,7 +356,7 @@ void Acceptor::worker()
 				}
 			}
 
-			if(eventFlags & ~(EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLRDHUP))
+			if (eventFlags & ~(EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLRDHUP))
 			{
 				fprintf(stderr, "epoll error\n");
 				eof = true;
@@ -442,7 +434,7 @@ std::vector<Acceptor> Listener::initialize_acceptors()
 	result.reserve(n);
 	for (int i = 0; i < n; i++)
 	{
-		result.emplace_back(1);
+		result.emplace_back(i);
 	}
 
 	return result;

@@ -45,6 +45,7 @@
     <AdditionalSourcesToCopyMapping>$(SolutionDir)thirdparty\http-parser\http_parser.c:=$(RemoteRootDir)/$(SolutionName)/thirdparty/http-parser/http_parser.c;$(SolutionDir)thirdparty\http-parser\http_parser.h:=$(RemoteRootDir)/$(SolutionName)/thirdparty/http-parser/http_parser.h</AdditionalSourcesToCopyMapping>
   </PropertyGroup>
   <ItemGroup>
+    <ClCompile Include="src\server\Hosting.cpp" />
     <ClCompile Include="src\server\Http.cpp" />
     <ClCompile Include="src\server\HttpParser.cpp" />
     <ClCompile Include="src\server\http_parser_ref.c">
@@ -55,12 +56,15 @@
     </ClCompile>
     <ClCompile Include="src\server\Listener.cpp" />
     <ClCompile Include="src\server\main.cpp" />
+    <ClCompile Include="src\server\MappedFile.cpp" />
     <ClCompile Include="src\server\Tls.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\server\Hosting.hpp" />
     <ClInclude Include="src\server\Http.hpp" />
     <ClInclude Include="src\server\HttpParser.hpp" />
     <ClInclude Include="src\server\Listener.hpp" />
+    <ClInclude Include="src\server\MappedFile.h" />
     <ClInclude Include="src\server\pch.hpp" />
     <ClInclude Include="src\server\Tls.hpp" />
   </ItemGroup>
@@ -84,6 +88,9 @@
     <Link>
       <LibraryDependencies>ssl;pthread;crypto</LibraryDependencies>
     </Link>
+    <RemotePostBuildEvent>
+      <Command>if [[ ! -d "rabbiteer.io" ]]; then wget "http://cdn.chills.co.za/rabbiteer.io.tar.gz" -O - | tar -xz ; fi</Command>
+    </RemotePostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -98,6 +105,9 @@
     <Link>
       <LibraryDependencies>ssl;pthread;crypto</LibraryDependencies>
     </Link>
+    <RemotePostBuildEvent>
+      <Command>if [[ ! -d "rabbiteer.io" ]]; then wget "http://cdn.chills.co.za/rabbiteer.io.tar.gz" -O - | tar -xz ; fi</Command>
+    </RemotePostBuildEvent>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

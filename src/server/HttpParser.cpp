@@ -126,7 +126,7 @@ int HttpParser::on_headers_complete()
 
 int HttpParser::on_body(const char *at, size_t length)
 {
-	if(_callbacks.body) _callbacks.body(at, length);
+	if (_callbacks.body) _callbacks.body(at, length);
 	return 0;
 }
 
@@ -134,4 +134,83 @@ int HttpParser::on_message_complete()
 {
 	if (_callbacks.message_complete) _callbacks.message_complete();
 	return 0;
+}
+
+
+UrlParser::UrlParser(const char* s, size_t len)
+{
+	if (len == 0 || len > PATH_MAX || s[0] != '/')
+	{
+		memset(this, 0, sizeof(UrlParser));
+	}
+	else
+	{
+		struct http_parser_url u;
+		http_parser_url_init(&u);
+		_valid = !http_parser_parse_url(s, len, false, &u);
+		if (_valid)
+		{
+			_url = s;
+			_port = u.port;
+
+			if ((u.field_set & (1 << UF_SCHEMA)) != 0)
+			{
+				_schema = u.field_data[UF_SCHEMA].off;
+				_schema_len = u.field_data[UF_SCHEMA].len;
+			}
+			else
+			{
+				_schema = 0;
+				_schema_len = 0;
+			}
+
+			if ((u.field_set & (1 << UF_HOST)) != 0)
+			{
+				_host = u.field_data[UF_HOST].off;
+				_host_len = u.field_data[UF_HOST].len;
+			}
+			else
+			{
+				_host = 0;
+				_host_len = 0;
+			}
+
+			if ((u.field_set & (1 << UF_PATH)) != 0)
+			{
+				_path = u.field_data[UF_PATH].off;
+				_path_len = u.field_data[UF_PATH].len;
+			}
+			else
+			{
+				_path = 0;
+				_path_len = 0;
+			}
+
+			if ((u.field_set & (1 << UF_QUERY)) != 0)
+			{
+				_query = u.field_data[UF_QUERY].off;
+				_query_len = u.field_data[UF_QUERY].len;
+			}
+			else
+			{
+				_query = 0;
+				_query_len = 0;
+			}
+
+			if ((u.field_set & (1 << UF_FRAGMENT)) != 0)
+			{
+				_fragment = u.field_data[UF_FRAGMENT].off;
+				_fragment_len = u.field_data[UF_FRAGMENT].len;
+			}
+			else
+			{
+				_fragment = 0;
+				_fragment_len = 0;
+			}
+		}
+		else
+		{
+			memset(this, 0, sizeof(UrlParser));
+		}
+	}
 }

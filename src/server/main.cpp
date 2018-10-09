@@ -4,7 +4,7 @@
 #include "Http.hpp"
 
 // telnet localhost 9080
-// openssl s_client -connect localhost:9443
+// openssl s_client -connect localhost:9443 -servername localtest.me
 
 std::vector<Listener*> listeners;
 
@@ -20,9 +20,12 @@ void sig_handler(int signum)
 
 int main(int argc, char *argv[])
 {
-	TlsContext tls("localhost.cer", "localhost.key");
-	HttpServer http;
+	std::shared_ptr<Hosting> static_hosting = std::make_shared<StaticHosting>("./rabbiteer.io");
+	Tls tls;
+	HttpServer http{ static_hosting };
 
+	tls.add_certificate("localhost.cer", "localhost.key");
+	tls.add_certificate("localtest.cer", "localtest.key");
 
 	printf("starting listener\n");
 	Listener l1(nullptr, 443, [&tls,&http](std::shared_ptr<ComboSocket> producer)
