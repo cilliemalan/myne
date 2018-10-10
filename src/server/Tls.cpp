@@ -197,8 +197,8 @@ const TlsContext* Tls::get_ctx_for_hostname(const char* hostname, size_t hostnam
 }
 
 
-TlsComboSocket::TlsComboSocket(std::shared_ptr<Socket> base, const Tls &tls)
-	:ComboSocket(base),
+TlsSocket::TlsSocket(std::shared_ptr<Socket> base, const Tls &tls)
+	:_socket(base),
 	_tls(tls)
 {
 	_rbio = BIO_new(BIO_s_mem());
@@ -213,14 +213,14 @@ TlsComboSocket::TlsComboSocket(std::shared_ptr<Socket> base, const Tls &tls)
 	SSL_set_bio(_ssl, _rbio, _wbio);
 }
 
-TlsComboSocket::~TlsComboSocket()
+TlsSocket::~TlsSocket()
 {
-	if (_ssl) { SSL_free(_ssl); _rbio = _wbio = nullptr; _ssl = nullptr; }
+	close();
 }
 
-ssize_t TlsComboSocket::read(void* b, size_t max)
+ssize_t TlsSocket::read(void* b, size_t max)
 {
-	if (!b || !max) return 0;
+	if (!b || !max || !_ssl) return 0;
 
 	auto amt = SSL_read(_ssl, b, static_cast<int>(max));
 	if (amt == 0)
@@ -250,9 +250,9 @@ ssize_t TlsComboSocket::read(void* b, size_t max)
 	return amt;
 }
 
-ssize_t TlsComboSocket::write(const void* b, size_t amt)
+ssize_t TlsSocket::write(const void* b, size_t amt)
 {
-	if (!b || !amt) return 0;
+	if (!b || !amt || !_ssl || !_socket) return 0;
 
 	auto amtwritten = SSL_write(_ssl, b, static_cast<int>(amt));
 
@@ -282,13 +282,18 @@ ssize_t TlsComboSocket::write(const void* b, size_t amt)
 	}
 }
 
-void TlsComboSocket::close()
+void TlsSocket::close()
 {
-	ComboSocket::close();
+	if (_ssl) { SSL_free(_ssl); _rbio = _wbio = nullptr; _ssl = nullptr; }
+	if (_socket) { _socket->close(); _socket.reset(); }
+	_producer.signal_closed();
+	_producer.reset();
 }
 
-void TlsComboSocket::read_avail()
+void TlsSocket::read_avail()
 {
+	if (!_ssl || !_socket) return;
+
 	for (;;)
 	{
 		char buf[4096];
@@ -361,14 +366,14 @@ void TlsComboSocket::read_avail()
 
 	if (SSL_is_init_finished(_ssl))
 	{
-		signal_read_avail();
-		signal_write_avail();
+		_producer.signal_read_avail();
+		_producer.signal_write_avail();
 	}
 }
 
-void TlsComboSocket::write_avail()
+void TlsSocket::write_avail()
 {
-	flush_pending_writes();
+	if (!_ssl || !_socket) return;
 
 	bool wouldblock;
 	size_t amt_avail;
@@ -379,7 +384,7 @@ void TlsComboSocket::write_avail()
 		amt_avail = BIO_get_mem_data(_wbio, &ptr);
 		if (amt_avail > 0)
 		{
-			auto amount_written = socket<ComboSocket>()->write(ptr, amt_avail);
+			auto amount_written = _socket->write(ptr, amt_avail);
 			if (amount_written > 0)
 			{
 				BIO_advance(_wbio, amount_written);
@@ -408,7 +413,7 @@ void TlsComboSocket::write_avail()
 	} while (!wouldblock || amt_avail > 0);
 }
 
-void TlsComboSocket::closed()
+void TlsSocket::closed()
 {
-	ComboSocket::closed();
+	close();
 }

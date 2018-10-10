@@ -13,6 +13,8 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <netinet/tcp.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 
 #include <openssl/conf.h>
 #include <openssl/evp.h>
@@ -33,6 +35,7 @@
 #include <unordered_map>
 #include <functional>
 #include <queue>
+#include <atomic>
 
 class system_err : std::runtime_error
 {

@@ -3,6 +3,8 @@
 
 // helper funcs
 
+static std::atomic<size_t> _open_connections;
+
 static void make_non_blocking(int sfd)
 {
 	int flags = fcntl(sfd, F_GETFL, 0);
@@ -107,185 +109,72 @@ void epoll_add(int efd, int sfd, void* data = nullptr, uint32_t events = EPOLLIN
 }
 
 
-// ComboSocket
+// LinuxSocket
 
-ssize_t ComboSocket::read(void* b, size_t max)
+LinuxSocket::LinuxSocket(int fd)
+	:_fd(fd)
 {
-	if (!_socket || !b || !max) return 0;
+	++_open_connections;
+}
 
-	ssize_t result = _socket->read(b, max);
+ssize_t LinuxSocket::read(void* b, size_t max)
+{
+	if (!b || !max) return 0;
 
-	if (result == 0)
+	ssize_t r = 0;
+	while (r == 0) r = ::read(_fd, b, max);
+
+	if (r <= 0)
 	{
-		close();
-		return 0;
-	}
-
-	return result;
-}
-
-ssize_t ComboSocket::write(const void* b, size_t amt)
-{
-	if (!_socket || !b || !amt) return 0;
-
-	ssize_t result = _socket->write(b, amt);
-
-	if (result == 0)
-	{
-		close();
-		return 0;
-	}
-
-	return result;
-}
-
-void ComboSocket::close()
-{
-	if (_socket)
-	{
-		_socket->close();
-		_socket.reset();
-	}
-}
-
-
-void ComboSocket::read_avail()
-{
-	signal_read_avail();
-}
-
-void ComboSocket::write_avail()
-{
-	flush_pending_writes();
-
-	if (_pending_writes.size() == 0)
-	{
-		signal_write_avail();
-	}
-}
-
-void ComboSocket::closed()
-{
-	signal_closed();
-}
-
-ssize_t ComboSocket::buffered_write(const void* data, size_t length)
-{
-	if (!_socket) return -1;
-	if (!length) return 0;
-
-	// make sure there are no pending writes
-	flush_pending_writes();
-
-	const char* p0 = static_cast<const char*>(data);
-	const char* p = p0;
-	auto bytes_left = length;
-
-	while (bytes_left > 0)
-	{
-		auto written = write(p, bytes_left);
-		if (written > 0)
+		if (errno == EAGAIN || errno == EWOULDBLOCK)
 		{
-			p += written;
-			bytes_left -= written;
-		}
-		else if (written < 0)
-		{
-			// write would block, append to pending buffer
-			auto pending_buffer_size = _pending_writes.size();
-			_pending_writes.resize(pending_buffer_size + bytes_left);
-			char* dst = &_pending_writes[pending_buffer_size];
-			memcpy(dst, p, bytes_left);
-
-			break;
+			return -1;
 		}
 		else
 		{
-			// close the socket
+			// socket broken
+			perror("read");
 			close();
-			throw std::runtime_error("socket error");
+			return 0;
 		}
 	}
 
-	return static_cast<ssize_t>(p - p0);
+	return r;
 }
 
-ssize_t ComboSocket::flush_pending_writes()
+ssize_t LinuxSocket::write(const void* b, size_t amt)
 {
-	if (!_socket) return -1;
+	if (!b || !amt) return 0;
 
-	char* p0 = &_pending_writes[0];
-	char* p = p0;
-	auto bytes_left = _pending_writes.size();
+	ssize_t r = 0;
+	while (r == 0) r = ::write(_fd, b, amt);
 
-	while (bytes_left > 0)
+	if (r <= 0)
 	{
-		auto written = write(p, bytes_left);
-		if (written > 0)
+		if (errno == EAGAIN || errno == EWOULDBLOCK)
 		{
-			p += written;
-		}
-		else if (written < 0)
-		{
-			// write would block, we're done here
-			break;
+			return -1;
 		}
 		else
 		{
-			// socket broken or closed
+			// socket broken
+			perror("write");
 			close();
-			signal_closed();
-			throw std::runtime_error("socket error");
+			return 0;
 		}
 	}
 
-	if (p0 != p)
-	{
-		if (bytes_left > 0)
-		{
-			// realling the buffer
-			memcpy(p0, p, bytes_left);
-		}
-
-		_pending_writes.resize(bytes_left);
-		_pending_writes.shrink_to_fit();
-	}
-
-	return static_cast<ssize_t>(p - p0);
+	return r;
 }
 
-std::vector<char> ComboSocket::read_all()
+void LinuxSocket::close()
 {
-	std::vector<char> data;
-
-	bool eof;
-	ssize_t count;
-	do
+	if (_fd)
 	{
-		char buf[4096];
-
-		count = read(buf, sizeof(buf));
-		if (count < 0)
-		{
-			// we have read all data.
-		}
-		else if (count == 0)
-		{
-			//End of file. (remote closed)
-			eof = true;
-		}
-		else
-		{
-			data.insert(data.end(), buf, buf + count);
-		}
-	} while (count > 0);
-
-	if (eof)
-	{
-		close();
+		::close(_fd);
+		_fd = 0;
+		--_open_connections;
 	}
-
-	return std::move(data);
 }
 
 
@@ -298,7 +187,7 @@ Acceptor::Acceptor(int nr)
 	_thread([this]() { worker(); })
 {
 	if (_efd == -1) throw system_err();
-
+	
 	// pipe for signaling
 	if (pipe2(_pfd, O_NONBLOCK) == -1) throw system_err();
 	epoll_add(_efd, _pfd[0]);
@@ -309,19 +198,19 @@ Acceptor::~Acceptor()
 	stop();
 }
 
-std::shared_ptr<ComboSocket> Acceptor::accept(std::shared_ptr<LinuxSocket> socket, std::function<void(std::shared_ptr<ComboSocket>)> acceptHandler)
+void Acceptor::accept(std::shared_ptr<LinuxSocket> socket, socket_handler acceptHandler)
 {
 	auto fd = socket->fd();
-	auto combo = std::make_shared<Acceptor::LocalComboSocket>(socket, *this, fd);
-	acceptHandler(combo);
-	_sockets.insert_or_assign(fd, combo);
+	auto events = std::make_shared<Acceptor::LocalSocketEventProducer>();
+	auto pass_socket = std::make_shared< Acceptor::LocalSocket>(socket, *this);
+	acceptHandler(pass_socket, events);
+	_sockets.insert_or_assign(fd, std::make_pair(events, socket));
 	epoll_add(_efd, fd, nullptr, EPOLLIN | EPOLLET | EPOLLOUT | EPOLLHUP | EPOLLRDHUP);
-	return combo;
 }
 
 void Acceptor::worker()
 {
-	std::array<epoll_event, 16> events;
+	std::array<epoll_event, 256> events;
 	while (_running)
 	{
 		int numEvents = epoll_wait(_efd, &events[0], events.size(), -1);
@@ -340,7 +229,7 @@ void Acceptor::worker()
 				continue;
 			}
 
-			auto eventReceiver = handleriterator->second;
+			auto eventReceiver = handleriterator->second.first;
 			bool eof = false;
 			auto eventFlags = event.events;
 
@@ -381,9 +270,10 @@ void Acceptor::worker()
 
 				try
 				{
+					handleriterator->second.second->close();
 					eventReceiver->signal_closed();
-				}
-				catch (...) {}
+				} catch (...) {}
+
 				_sockets.erase(handleriterator);
 			}
 		}
@@ -406,7 +296,7 @@ void Acceptor::stop()
 
 // Listener
 
-Listener::Listener(const char* address, int port, std::function<void(std::shared_ptr<ComboSocket>)> acceptHandler)
+Listener::Listener(const char* address, int port, socket_handler acceptHandler)
 	: _efd(initialize_epoll()),
 	_sfd(initialize_socket(address, port)),
 	_thread([this]() {worker(); }),
@@ -459,7 +349,7 @@ std::vector<Acceptor> Listener::initialize_acceptors()
 
 void Listener::worker()
 {
-	std::array<epoll_event, 16> events;
+	std::array<epoll_event, 256> events;
 	while (_running)
 	{
 		auto numEvents = epoll_wait(_efd, &events[0], events.size(), -1);
@@ -491,9 +381,10 @@ void Listener::worker()
 						{
 							// couldn't accept for some reason
 							perror("accept");
-							continue;
+							break;
 						}
 					}
+
 
 					// get info about the connection
 					char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
@@ -510,7 +401,7 @@ void Listener::worker()
 
 					auto socket = std::make_shared<LinuxSocket>(infd);
 					auto& acceptor = _acceptors[_counter++ % _acceptors.size()];
-					auto combo = acceptor.accept(socket, _acceptHandler);
+					acceptor.accept(socket, _acceptHandler);
 				}
 			}
 			else

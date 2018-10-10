@@ -20,6 +20,26 @@ void sig_handler(int signum)
 
 int main(int argc, char *argv[])
 {
+	rlimit l;
+	if (prlimit(getpid(), RLIMIT_NOFILE, nullptr, &l) == 0)
+	{
+		if (l.rlim_cur < l.rlim_max)
+		{
+			l.rlim_cur = l.rlim_max;
+			if (prlimit(getpid(), RLIMIT_NOFILE, &l, nullptr) < 0)
+			{
+				printf("warning: could not increase file limit.\n");
+				perror("prlimit");
+			}
+		}
+	}
+	else
+	{
+		printf("warning: could not get file limit.\n");
+		perror("prlimit");
+	}
+
+
 	std::shared_ptr<Hosting> static_hosting = std::make_shared<StaticHosting>("./rabbiteer.io");
 	Tls tls;
 	HttpServer http{ static_hosting };
@@ -28,17 +48,18 @@ int main(int argc, char *argv[])
 	tls.add_certificate("localtest.cer", "localtest.key");
 
 	printf("starting listener\n");
-	Listener l1(nullptr, 443, [&tls,&http](std::shared_ptr<ComboSocket> producer)
+	Listener l1(nullptr, 443, [&tls,&http](std::shared_ptr<Socket> socket, std::shared_ptr<SocketEventProducer> events)
 	{
-		auto tls_socket = std::make_shared<TlsComboSocket>(producer, tls);
-		producer->connect(tls_socket);
+		auto tls_socket = std::make_shared<TlsSocket>(socket, tls);
+		events->connect(tls_socket);
 
 		tls_socket->connect(std::make_shared<HttpHandler>(http, tls_socket));
 	});
 
-	Listener l2(nullptr, 80, [&tls, &http](std::shared_ptr<ComboSocket> producer)
+	Listener l2(nullptr, 80, [&tls, &http](std::shared_ptr<Socket> socket, std::shared_ptr<SocketEventProducer> events)
 	{
-		producer->connect(std::make_shared<HttpHandler>(http, producer));
+		auto handler = std::make_shared<HttpHandler>(http, socket);
+		events->connect(handler);
 	});
 
 	listeners.push_back(&l1);

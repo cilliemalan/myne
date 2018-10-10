@@ -2,7 +2,7 @@
 #include "Listener.hpp"
 #include "Http.hpp"
 
-HttpHandler::HttpHandler(HttpServer &http, std::shared_ptr<ComboSocket> socket)
+HttpHandler::HttpHandler(HttpServer &http, std::shared_ptr<Socket> socket)
 	: _done(false), _http(http), _socket(socket), _parser(parser_callbacks(), HttpParserType::Request)
 {
 }

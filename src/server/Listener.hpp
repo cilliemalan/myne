@@ -1,6 +1,9 @@
 #pragma once
 
+class Socket;
 class SocketEventProducer;
+
+typedef std::function<void(std::shared_ptr<Socket>, std::shared_ptr<SocketEventProducer>)> socket_handler;
 
 // receives events that happen on a socket
 class SocketEventReceiver
@@ -28,6 +31,7 @@ protected:
 	void signal_read_avail() { if (_receiver) _receiver->read_avail(); }
 	void signal_write_avail() { if (_receiver) _receiver->write_avail(); }
 	void signal_closed() { if (_receiver) { _receiver->closed(); _receiver.reset(); } }
+	void reset() { _receiver.reset(); }
 private:
 	std::shared_ptr< SocketEventReceiver> _receiver;
 };
@@ -51,93 +55,16 @@ public:
 class LinuxSocket : public Socket
 {
 public:
-	LinuxSocket(int fd) : _fd(fd) { }
+	LinuxSocket(int fd);
 	~LinuxSocket() { }
-
-	virtual ssize_t read(void* b, size_t max) override
-	{
-		if (!b || !max) return 0;
-
-		ssize_t r = 0;
-		while (r == 0) r = ::read(_fd, b, max);
-
-		if (r <= 0)
-		{
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-			{
-				return -1;
-			}
-			else
-			{
-				// socket broken
-				perror("read");
-				close();
-				return 0;
-			}
-		}
-
-		return r;
-	}
-
-	virtual ssize_t write(const void* b, size_t amt) override
-	{
-		if (!b || !amt) return 0;
-
-		ssize_t r = 0;
-		while (r == 0) r = ::write(_fd, b, amt);
-
-		if (r <= 0)
-		{
-			if (errno == EAGAIN || errno == EWOULDBLOCK)
-			{
-				return -1;
-			}
-			else
-			{
-				// socket broken
-				perror("write");
-				close();
-				return 0;
-			}
-		}
-
-		return r;
-	}
-	virtual void close() override { if (_fd) { ::close(_fd); _fd = 0; } }
-
-	int fd() { return _fd; }
-private:
-	int _fd;
-};
-
-// a combination of a Socket and a SocketEventProducer
-class ComboSocket : public SocketEventReceiver, public SocketEventProducer, public Socket
-{
-public:
-	ComboSocket(std::shared_ptr<Socket> socket) :_socket(socket) {}
-	virtual ~ComboSocket() { }
 
 	virtual ssize_t read(void* b, size_t max) override;
 	virtual ssize_t write(const void* b, size_t amt) override;
 	virtual void close() override;
 
-	virtual void read_avail() override;
-	virtual void write_avail() override;
-	virtual void closed() override;
-
-	std::vector<char> read_all();
-	ssize_t buffered_write(const void* data, size_t length);
-	ssize_t buffered_write(std::vector<char> buff) { return buffered_write(&buff[0], buff.size()); }
-protected:
-	ssize_t flush_pending_writes();
-
-	std::shared_ptr<Socket> socket() { return _socket; }
-	template<typename T>
-	std::shared_ptr<T> socket() { static_assert(std::is_base_of<Socket, T>()); return std::dynamic_pointer_cast<T>(_socket); }
+	int fd() { return _fd; }
 private:
-
-	std::shared_ptr<Socket> _socket;
-	std::vector<char> _pending_writes;
+	int _fd;
 };
 
 // handles traffic on sockets
@@ -150,29 +77,52 @@ public:
 	Acceptor& operator=(const Acceptor&) = delete;
 	~Acceptor();
 
-	std::shared_ptr<ComboSocket> accept(std::shared_ptr<LinuxSocket>, std::function<void(std::shared_ptr<ComboSocket>)> acceptHandler);
+	void accept(std::shared_ptr<LinuxSocket>, socket_handler acceptHandler);
 private:
 
-	class LocalComboSocket : public ComboSocket
+	class LocalSocketEventProducer : public SocketEventProducer
 	{
 	public:
-		LocalComboSocket(std::shared_ptr<Socket> socket, Acceptor &acceptor, int fd) : ComboSocket(socket), _acceptor(acceptor), _fd(fd) {}
-		~LocalComboSocket() { }
+		void signal_read_avail() { SocketEventProducer::signal_read_avail(); }
+		void signal_write_avail() { SocketEventProducer::signal_write_avail(); }
+		void signal_closed() { SocketEventProducer::signal_closed(); }
+		void reset() { SocketEventProducer::reset(); }
+	};
+
+	class LocalSocket : public Socket
+	{
+	public:
+		LocalSocket(std::shared_ptr<LinuxSocket> socket, Acceptor& acceptor) :_socket(socket), _acceptor(acceptor) {}
+		virtual ~LocalSocket() { close(); }
+
+		virtual ssize_t read(void* b, size_t max) override
+		{
+			if (!_socket) return 0;
+			return _socket->read(b, max);
+		}
+
+		virtual ssize_t write(const void* b, size_t amt) override
+		{
+			if (!_socket) return 0;
+			return _socket->write(b, amt);
+		}
 
 		virtual void close() override
 		{
-			auto sockref = _acceptor._sockets.find(_fd);
-			if (sockref != _acceptor._sockets.end())
+			if (!_socket) return;
+
+			auto iter = _acceptor._sockets.find(_socket->fd());
+			if (iter != _acceptor._sockets.end())
 			{
-				ComboSocket::close();
-				ComboSocket::signal_closed();
-				_acceptor._sockets.erase(sockref);
+				_acceptor._sockets.erase(iter);
 			}
+			_socket->close();
+			_socket.reset();
 		}
+
 	private:
-		friend class Acceptor;
-		Acceptor &_acceptor;
-		int _fd;
+		std::shared_ptr<LinuxSocket> _socket;
+		Acceptor& _acceptor;
 	};
 
 	void worker();
@@ -183,14 +133,14 @@ private:
 	int _efd;
 	bool _running;
 	std::thread _thread;
-	std::unordered_map<int, std::shared_ptr<LocalComboSocket>> _sockets;
+	std::unordered_map<int, std::pair<std::shared_ptr<LocalSocketEventProducer>,std::shared_ptr<LinuxSocket>>> _sockets;
 };
 
 // listens for traffic and forwards accepted sockets to an Acceptor
 class Listener
 {
 public:
-	Listener(const char* address, int port, std::function<void(std::shared_ptr<ComboSocket>)> acceptHandler);
+	Listener(const char* address, int port, socket_handler acceptHandler);
 	~Listener();
 	Listener(const Listener&) = delete;
 	Listener& operator=(const Listener&) = delete;
@@ -215,5 +165,5 @@ private:
 	bool _running = true;
 	std::thread _thread;
 	std::vector<Acceptor> _acceptors;
-	std::function<void(std::shared_ptr<ComboSocket>)> _acceptHandler;
+	socket_handler _acceptHandler;
 };

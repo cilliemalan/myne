@@ -18,7 +18,7 @@ private:
 class HttpHandler : public SocketEventReceiver
 {
 public:
-	HttpHandler(HttpServer &http, std::shared_ptr<ComboSocket> socket);
+	HttpHandler(HttpServer &http, std::shared_ptr<Socket> socket);
 
 	virtual ~HttpHandler() {}
 
@@ -59,6 +59,6 @@ private:
 
 	bool _done;
 	HttpServer &_http;
-	std::shared_ptr<ComboSocket> _socket;
+	std::shared_ptr<Socket> _socket;
 	HttpParser _parser;
 };

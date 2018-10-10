@@ -4,7 +4,7 @@ static constexpr auto SSL_PROTOCOL_FLAGS = SSL_OP_ALL | SSL_OP_NO_SSLv3 | SSL_OP
 static constexpr auto SSL_CIPHER_LIST = "ECDH+AESGCM:ECDH+CHACHA20:ECDH+AES256:ECDH+AES128:!aNULL:!MD5:!DSS:!SHA1:!AESCCM:!DHE:!RSA";
 
 class Tls;
-class TlsComboSocket;
+class TlsSocket;
 
 class TlsContext
 {
@@ -25,7 +25,7 @@ private:
 	Tls *_tls;
 
 	friend class Tls;
-	friend class TlsComboSocket;
+	friend class TlsSocket;
 	friend int ssl_servername_cb(SSL *s, int *ad, Tls *ctx);
 };
 
@@ -50,14 +50,14 @@ private:
 
 	std::vector<TlsContext> _contexts;
 
-	friend class TlsComboSocket;
+	friend class TlsSocket;
 };
 
-class TlsComboSocket : public ComboSocket
+class TlsSocket : public SocketEventReceiver, public Socket
 {
 public:
-	TlsComboSocket(std::shared_ptr<Socket> base, const Tls &ctx);
-	~TlsComboSocket();
+	TlsSocket(std::shared_ptr<Socket> base, const Tls &ctx);
+	~TlsSocket();
 
 	virtual ssize_t read(void* b, size_t max) override;
 	virtual ssize_t write(const void* b, size_t amt) override;
@@ -67,14 +67,27 @@ public:
 	virtual void write_avail() override;
 	virtual void closed() override;
 
+	void connect(std::shared_ptr<SocketEventReceiver> consumer) { _producer.connect(consumer); }
 private:
+
+	class LocalSocketEventProducer : public SocketEventProducer
+	{
+	public:
+		void signal_read_avail() { SocketEventProducer::signal_read_avail(); }
+		void signal_write_avail() { SocketEventProducer::signal_write_avail(); }
+		void signal_closed() { SocketEventProducer::signal_closed(); }
+		void reset() { SocketEventProducer::reset(); }
+	};
+
+	std::shared_ptr<Socket> _socket;
 	const Tls &_tls;
 
-	ssize_t socket_read(void* b, size_t a) { return ComboSocket::read(b, a); }
-	ssize_t socket_write(void* b, size_t a) { return ComboSocket::write(b, a); }
-	void socket_close() { ComboSocket::close(); }
-
+	ssize_t socket_read(void* b, size_t a) { return _socket ? _socket->read(b, a) : 0; }
+	ssize_t socket_write(void* b, size_t a) { return _socket ? _socket->write(b, a) : 0; }
+	
 	SSL* _ssl;
 	BIO *_rbio;
 	BIO *_wbio;
+
+	LocalSocketEventProducer _producer;
 };
