@@ -266,8 +266,6 @@ void Acceptor::worker()
 
 			if (eof)
 			{
-				printf("Closed connection on descriptor %d\n", sfd);
-
 				try
 				{
 					handleriterator->second.second->close();
