@@ -339,34 +339,45 @@ void Acceptor::worker()
 			auto eventFlags = event.events;
 
 
-			if (eventFlags & EPOLLHUP || eventFlags & EPOLLRDHUP)
+			if (eventFlags & (EPOLLPRI | EPOLLERR | EPOLLHUP | EPOLLRDHUP))
 			{
 				eof = true;
 			}
 			else
 			{
-				if (eventFlags & EPOLLIN)
+				try
 				{
-					eventReceiver->signal_read_avail();
-				}
+					if (eventFlags & EPOLLIN)
+					{
+						eventReceiver->signal_read_avail();
+					}
 
-				if (eventFlags & EPOLLOUT)
+					if (eventFlags & EPOLLOUT)
+					{
+						eventReceiver->signal_write_avail();
+					}
+				}
+				catch (std::runtime_error &e)
 				{
-					eventReceiver->signal_write_avail();
+					printf("Exception in handler: %s\n", e.what());
+					eof = true;
 				}
-			}
-
-			if (eventFlags & ~(EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLRDHUP))
-			{
-				fprintf(stderr, "epoll error\n");
-				eof = true;
+				catch (...)
+				{
+					printf("Unknown exception in handler\n");
+					eof = true;
+				}
 			}
 
 			if (eof)
 			{
 				printf("Closed connection on descriptor %d\n", sfd);
 
-				eventReceiver->signal_closed();
+				try
+				{
+					eventReceiver->signal_closed();
+				}
+				catch (...) {}
 				_sockets.erase(handleriterator);
 			}
 		}
