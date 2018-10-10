@@ -187,7 +187,7 @@ Acceptor::Acceptor(int nr)
 	_thread([this]() { worker(); })
 {
 	if (_efd == -1) throw system_err();
-	
+
 	// pipe for signaling
 	if (pipe2(_pfd, O_NONBLOCK) == -1) throw system_err();
 	epoll_add(_efd, _pfd[0]);
@@ -210,7 +210,7 @@ void Acceptor::accept(std::shared_ptr<LinuxSocket> socket, socket_handler accept
 
 void Acceptor::worker()
 {
-	std::array<epoll_event, 256> events;
+	std::array<epoll_event, 1024> events;
 	while (_running)
 	{
 		int numEvents = epoll_wait(_efd, &events[0], events.size(), -1);
@@ -272,7 +272,8 @@ void Acceptor::worker()
 				{
 					handleriterator->second.second->close();
 					eventReceiver->signal_closed();
-				} catch (...) {}
+				}
+				catch (...) {}
 
 				_sockets.erase(handleriterator);
 			}
@@ -336,7 +337,8 @@ int Listener::initialize_socket(const char* address, int port)
 
 std::vector<Acceptor> Listener::initialize_acceptors()
 {
-	int n = std::thread::hardware_concurrency();
+	int n = std::thread::hardware_concurrency() / 2;
+	if (n <= 0) n = 1;
 	std::vector<Acceptor> result;
 	result.reserve(n);
 	for (int i = 0; i < n; i++)
@@ -349,7 +351,7 @@ std::vector<Acceptor> Listener::initialize_acceptors()
 
 void Listener::worker()
 {
-	std::array<epoll_event, 256> events;
+	std::array<epoll_event, 1024> events;
 	while (_running)
 	{
 		auto numEvents = epoll_wait(_efd, &events[0], events.size(), -1);
