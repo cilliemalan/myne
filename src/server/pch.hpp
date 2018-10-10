@@ -12,6 +12,7 @@
 #include <signal.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <netinet/tcp.h>
 
 #include <openssl/conf.h>
 #include <openssl/evp.h>

@@ -61,6 +61,12 @@ static int create_and_bind(const char* address, int port)
 			close(sfd);
 			continue;
 		}
+		if (setsockopt(sfd, 6, TCP_NODELAY, &yes, sizeof(yes)) < 0)
+		{
+			perror("setsockopt");
+			close(sfd);
+			continue;
+		}
 
 		s = bind(sfd, rp->ai_addr, rp->ai_addrlen);
 		if (s)
