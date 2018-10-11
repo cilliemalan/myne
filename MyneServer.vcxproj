@@ -74,6 +74,7 @@
     <None Include="src\server\localhost.key" />
     <None Include="src\server\localtest.cer" />
     <None Include="src\server\localtest.key" />
+    <None Include="src\server\Makefile" />
   </ItemGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
