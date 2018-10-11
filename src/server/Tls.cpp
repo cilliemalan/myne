@@ -25,9 +25,11 @@ X509 *load_cert(const char *file)
 	auto cert = PEM_read_bio_X509_AUX(bio, nullptr, nullptr, nullptr);
 	if (!cert)
 	{
+		BIO_free(bio);
 		throw std::runtime_error("could not load certificate");
 	}
 
+	BIO_free(bio);
 	return cert;
 }
 
@@ -123,7 +125,7 @@ TlsContext::TlsContext(const char* certificate, const char* key, Tls *tls)
 }
 
 TlsContext::TlsContext(TlsContext && old)
-	:_ctx(old._ctx), _tls(old._tls)
+	:_ctx(old._ctx), _tls(old._tls), _cert(nullptr)
 {
 	old._ctx = nullptr;
 	old._tls = nullptr;
@@ -131,6 +133,7 @@ TlsContext::TlsContext(TlsContext && old)
 
 TlsContext::~TlsContext()
 {
+	if (_cert) { X509_free(_cert); }
 	if (_ctx) { SSL_CTX_free(_ctx); _ctx = nullptr; }
 }
 

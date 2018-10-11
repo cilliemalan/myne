@@ -3,8 +3,6 @@
 
 // helper funcs
 
-static std::atomic<size_t> _open_connections;
-
 static void make_non_blocking(int sfd)
 {
 	int flags = fcntl(sfd, F_GETFL, 0);
@@ -95,7 +93,7 @@ static int create_and_bind(const char* address, int port)
 
 void epoll_add(int efd, int sfd, void* data = nullptr, uint32_t events = EPOLLIN | EPOLLET)
 {
-	epoll_event ev;
+	epoll_event ev{ 0, 0 };
 	ev.events = events;
 	if (data)
 	{
@@ -105,6 +103,7 @@ void epoll_add(int efd, int sfd, void* data = nullptr, uint32_t events = EPOLLIN
 	{
 		ev.data.fd = sfd;
 	}
+
 	if (epoll_ctl(efd, EPOLL_CTL_ADD, sfd, &ev) == -1) throw system_err();
 }
 
@@ -114,7 +113,6 @@ void epoll_add(int efd, int sfd, void* data = nullptr, uint32_t events = EPOLLIN
 LinuxSocket::LinuxSocket(int fd)
 	:_fd(fd)
 {
-	++_open_connections;
 }
 
 ssize_t LinuxSocket::read(void* b, size_t max)
@@ -173,7 +171,6 @@ void LinuxSocket::close()
 	{
 		::close(_fd);
 		_fd = 0;
-		--_open_connections;
 	}
 }
 
@@ -210,10 +207,12 @@ void Acceptor::accept(std::shared_ptr<LinuxSocket> socket, socket_handler accept
 
 void Acceptor::worker()
 {
-	std::array<epoll_event, 1024> events;
+	constexpr int n = 1024;
+	epoll_event events[n];
+
 	while (_running)
 	{
-		int numEvents = epoll_wait(_efd, &events[0], events.size(), -1);
+		int numEvents = epoll_wait(_efd, &events[0], n, -1);
 		for (int i = 0; i < numEvents && _running; i++)
 		{
 			const auto &event = events[i];
@@ -335,7 +334,7 @@ int Listener::initialize_socket(const char* address, int port)
 
 std::vector<Acceptor> Listener::initialize_acceptors()
 {
-	int n = std::thread::hardware_concurrency() / 2;
+	int n = std::thread::hardware_concurrency();
 	if (n <= 0) n = 1;
 	std::vector<Acceptor> result;
 	result.reserve(n);
@@ -349,10 +348,12 @@ std::vector<Acceptor> Listener::initialize_acceptors()
 
 void Listener::worker()
 {
-	std::array<epoll_event, 1024> events;
+	constexpr int n = 4096;
+	epoll_event events[n];
+
 	while (_running)
 	{
-		auto numEvents = epoll_wait(_efd, &events[0], events.size(), -1);
+		auto numEvents = epoll_wait(_efd, &events[0], n, -1);
 		for (int i = 0; i < numEvents && _running; i++)
 		{
 			const auto &event = events[i];
@@ -384,7 +385,6 @@ void Listener::worker()
 							break;
 						}
 					}
-
 
 					// get info about the connection
 					char hbuf[NI_MAXHOST], sbuf[NI_MAXSERV];
@@ -426,5 +426,5 @@ void Listener::stop()
 
 void Listener::wait()
 {
-	if (_thread.joinable()) _thread.join();
+ 	if (_thread.joinable()) _thread.join();
 }

@@ -13,7 +13,7 @@ void sig_handler(int signum)
 	printf("got SIGINT\n");
 	if (listeners.size())
 	{
-		printf("stopping the thing\n");
+		printf("stopping...\n");
 		for (auto l : listeners) l->stop();
 	}
 }
@@ -38,7 +38,6 @@ int main(int argc, char *argv[])
 		printf("warning: could not get file limit.\n");
 		perror("prlimit");
 	}
-
 
 	std::shared_ptr<Hosting> static_hosting = std::make_shared<StaticHosting>("./rabbiteer.io");
 	Tls tls;
