@@ -343,27 +343,21 @@ void TlsSocket::read_avail()
 	if (!SSL_is_init_finished(_ssl))
 	{
 		auto r = SSL_accept(_ssl);
-		auto status = SSL_get_error(_ssl, r);
+		if (r <= 0)
+		{
+			auto status = SSL_get_error(_ssl, r);
 
-		if (status == SSL_ERROR_WANT_READ)
-		{
-			// need to wait for more data
-			return;
-		}
-		else if (status == SSL_ERROR_WANT_WRITE)
-		{
-			// will write on next write cycle
-			return;
-		}
-		else if (status == SSL_ERROR_NONE)
-		{
-			// init may be done already
-		}
-		else
-		{
-			printf("SSL read error: unexpected result from accept\n");
-			close();
-			return;
+			if (status == SSL_ERROR_WANT_WRITE || status == SSL_ERROR_WANT_READ)
+			{
+				// will write on next write cycle
+				return;
+			}
+			else
+			{
+				printf("SSL read error: unexpected result from accept: %d\n", status);
+				close();
+				return;
+			}
 		}
 	}
 
