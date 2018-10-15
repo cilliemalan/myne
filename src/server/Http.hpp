@@ -62,3 +62,18 @@ private:
 	std::shared_ptr<Socket> _socket;
 	HttpParser _parser;
 };
+
+class Http2Handler : public SocketEventReceiver
+{
+public:
+	Http2Handler(HttpServer &http, std::shared_ptr<Socket> socket);
+
+	virtual ~Http2Handler() {}
+
+	virtual void read_avail();
+	virtual void write_avail();
+	virtual void closed();
+private:
+	HttpServer &_http;
+	std::shared_ptr<Socket> _socket;
+};

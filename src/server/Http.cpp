@@ -187,3 +187,25 @@ HttpParserCallbacks HttpHandler::parser_callbacks()
 		std::bind(&HttpHandler::on_message_complete, this)
 	};
 }
+
+
+Http2Handler::Http2Handler(HttpServer &http, std::shared_ptr<Socket> socket)
+	:_http(http), _socket(socket)
+{
+
+}
+
+void Http2Handler::read_avail()
+{
+	if (_socket) { _socket->close(); _socket.reset(); }
+}
+
+void Http2Handler::write_avail()
+{
+
+}
+
+void Http2Handler::closed()
+{
+
+}
