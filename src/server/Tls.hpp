@@ -19,17 +19,15 @@ public:
 
 private:
 
+	Tls *_tls;
+	SSL_CTX* _ctx;
 	X509* _cert;
 	std::vector<std::string> _hostnames;
-	SSL_CTX* _ctx;
-	Tls *_tls;
 
 	friend class Tls;
 	friend class TlsSocket;
 	friend int ssl_servername_cb(SSL *s, int *ad, Tls *ctx);
 };
-
-
 
 class Tls
 {
@@ -42,15 +40,33 @@ public:
 
 	void add_certificate(const char* certificate, const char* key);
 
+	inline void add_handler(std::function<std::shared_ptr<SocketEventReceiver>(std::shared_ptr<TlsSocket> socket)> factory)
+	{
+		_handler_mapping.insert_or_assign(std::string(), factory);
+	}
+
+	inline void add_handler(std::string protocol, std::function<std::shared_ptr<SocketEventReceiver>(std::shared_ptr<TlsSocket> socket)> factory)
+	{
+		_handler_mapping.insert_or_assign(protocol, factory);
+	}
+
 	const TlsContext* first_ctx() const;
 	const TlsContext* get_ctx_for_hostname(const std::string &hostname) const;
 	const TlsContext* get_ctx_for_hostname(const char* hostname) const;
 	const TlsContext* get_ctx_for_hostname(const char* hostname, size_t hostname_len) const;
 private:
+	int alpn_negotiate(SSL *s, unsigned char **out, unsigned char *outlen,
+		const unsigned char *in, unsigned int inlen);
+
+	std::shared_ptr<SocketEventReceiver> create_handler(std::string protocol, std::shared_ptr<TlsSocket> socket) const;
 
 	std::vector<TlsContext> _contexts;
+	std::unordered_map<std::string, std::function<std::shared_ptr<SocketEventReceiver>(std::shared_ptr<TlsSocket> socket)>> _handler_mapping;
+	std::vector<unsigned char> alpn_data;
 
 	friend class TlsSocket;
+	friend int alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
+		const unsigned char *in, unsigned int inlen, void *usr);
 };
 
 class TlsSocket : public SocketEventReceiver, public Socket
@@ -67,27 +83,24 @@ public:
 	virtual void write_avail() override;
 	virtual void closed() override;
 
-	void connect(std::shared_ptr<SocketEventReceiver> consumer) { _producer.connect(consumer); }
+	inline void set_shared_ptr(std::shared_ptr<TlsSocket> myself) { _myself = myself; }
+
 private:
-
-	class LocalSocketEventProducer : public SocketEventProducer
-	{
-	public:
-		void signal_read_avail() { SocketEventProducer::signal_read_avail(); }
-		void signal_write_avail() { SocketEventProducer::signal_write_avail(); }
-		void signal_closed() { SocketEventProducer::signal_closed(); }
-		void reset() { SocketEventProducer::reset(); }
-	};
-
 	std::shared_ptr<Socket> _socket;
 	const Tls &_tls;
 
-	ssize_t socket_read(void* b, size_t a) { return _socket ? _socket->read(b, a) : 0; }
-	ssize_t socket_write(void* b, size_t a) { return _socket ? _socket->write(b, a) : 0; }
-	
+	std::weak_ptr<TlsSocket> _myself;
+
+	ssize_t socket_read(void* b, size_t a);
+	ssize_t socket_write(void* b, size_t a);
+
+	void signal_read_avail();
+	void signal_write_avail();
+	void signal_closed();
+
 	SSL* _ssl;
 	BIO *_rbio;
 	BIO *_wbio;
 
-	LocalSocketEventProducer _producer;
+	std::shared_ptr<SocketEventReceiver> _connection;
 };

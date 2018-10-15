@@ -18,7 +18,7 @@ void sig_handler(int signum)
 	}
 }
 
-int main(int argc, char *argv[])
+void maximize_fds()
 {
 	rlimit l;
 	if (prlimit(getpid(), RLIMIT_NOFILE, nullptr, &l) == 0)
@@ -38,6 +38,11 @@ int main(int argc, char *argv[])
 		printf("warning: could not get file limit.\n");
 		perror("prlimit");
 	}
+}
+
+int main(int argc, char *argv[])
+{
+	maximize_fds();
 
 	std::shared_ptr<Hosting> static_hosting = std::make_shared<StaticHosting>("./rabbiteer.io");
 	Tls tls;
@@ -46,13 +51,17 @@ int main(int argc, char *argv[])
 	tls.add_certificate("localhost.cer", "localhost.key");
 	tls.add_certificate("localtest.cer", "localtest.key");
 
+	tls.add_handler([&http](std::shared_ptr<TlsSocket> sock) { return std::make_shared<HttpHandler>(http, sock); });
+	tls.add_handler("http/1.1", [&http](std::shared_ptr<TlsSocket> sock) { return std::make_shared<HttpHandler>(http, sock); });
+	tls.add_handler("h2", [&http](std::shared_ptr<TlsSocket> sock) { return std::make_shared<Http2Handler>(http, sock); });
+
+
 	printf("starting listener\n");
 	Listener l1(nullptr, 443, [&tls,&http](std::shared_ptr<Socket> socket, std::shared_ptr<SocketEventProducer> events)
 	{
 		auto tls_socket = std::make_shared<TlsSocket>(socket, tls);
 		events->connect(tls_socket);
-
-		tls_socket->connect(std::make_shared<HttpHandler>(http, tls_socket));
+		tls_socket->set_shared_ptr(tls_socket);
 	});
 
 	Listener l2(nullptr, 80, [&tls, &http](std::shared_ptr<Socket> socket, std::shared_ptr<SocketEventProducer> events)
@@ -70,3 +79,4 @@ int main(int argc, char *argv[])
 
 	return 0;
 }
+

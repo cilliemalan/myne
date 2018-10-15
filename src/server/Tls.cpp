@@ -50,6 +50,14 @@ int ssl_servername_cb(SSL *s, int *ad, Tls *tls)
 	return SSL_TLSEXT_ERR_NOACK;
 }
 
+int alpn_cb(SSL *s, const unsigned char **out, unsigned char *outlen,
+	const unsigned char *in, unsigned int inlen, void *usr)
+{
+	Tls* tls = static_cast<Tls*>(usr);
+	auto result = tls->alpn_negotiate(s, const_cast<unsigned char**>(out), outlen, in, inlen);
+	return result;
+}
+
 std::vector<std::string> get_hostnames(X509* cert)
 {
 	char buf[1024];
@@ -120,12 +128,14 @@ TlsContext::TlsContext(const char* certificate, const char* key, Tls *tls)
 	SSL_CTX_set_cipher_list(ctx, SSL_CIPHER_LIST);
 	SSL_CTX_set_tlsext_servername_callback(ctx, ssl_servername_cb);
 	SSL_CTX_set_tlsext_servername_arg(ctx, tls);
+	SSL_CTX_set_alpn_select_cb(ctx, alpn_cb, tls);
 
 	_ctx = ctx;
+
 }
 
 TlsContext::TlsContext(TlsContext && old)
-	:_ctx(old._ctx), _tls(old._tls), _cert(nullptr)
+	: _tls(old._tls), _ctx(old._ctx), _cert(nullptr)
 {
 	old._ctx = nullptr;
 	old._tls = nullptr;
@@ -197,6 +207,55 @@ const TlsContext* Tls::get_ctx_for_hostname(const char* hostname) const
 const TlsContext* Tls::get_ctx_for_hostname(const char* hostname, size_t hostname_len) const
 {
 	return get_ctx_for_hostname(std::string(hostname, hostname_len));
+}
+
+int Tls::alpn_negotiate(SSL *s, unsigned char **out, unsigned char *outlen,
+	const unsigned char *in, unsigned int inlen)
+{
+	if (alpn_data.size() == 0)
+	{
+		if (_handler_mapping.size() == 0)
+		{
+			return SSL_TLSEXT_ERR_NOACK;
+		}
+		else
+		{
+			for (const auto &s : _handler_mapping)
+			{
+				auto &protocol = s.first;
+				if (protocol.size() == 0) continue;
+				
+				auto ix = alpn_data.size();
+				unsigned char len = static_cast<unsigned char>(protocol.length());
+				alpn_data.resize(ix + len + 1);
+				alpn_data[ix] = len;
+				memcpy(&alpn_data[ix + 1], &protocol[0], len);
+			}
+		}
+	}
+
+	if (alpn_data.size() != 0)
+	{
+		if (SSL_select_next_proto(out, outlen, &alpn_data[0], static_cast<unsigned int>(alpn_data.size()), in, inlen))
+		{
+			return SSL_TLSEXT_ERR_OK;
+		}
+	}
+
+	return SSL_TLSEXT_ERR_NOACK;
+}
+
+
+std::shared_ptr<SocketEventReceiver> Tls::create_handler(std::string protocol, std::shared_ptr<TlsSocket> socket) const
+{
+	auto mapping = _handler_mapping.find(protocol);
+	if (mapping != _handler_mapping.cend())
+	{
+		return mapping->second(socket);
+	}
+
+	// this function should never receive an invalid protocol.
+	throw std::runtime_error("invalid protocol");
 }
 
 
@@ -289,8 +348,7 @@ void TlsSocket::close()
 {
 	if (_ssl) { SSL_free(_ssl); _rbio = _wbio = nullptr; _ssl = nullptr; }
 	if (_socket) { _socket->close(); _socket.reset(); }
-	_producer.signal_closed();
-	_producer.reset();
+	signal_closed();
 }
 
 void TlsSocket::read_avail()
@@ -355,16 +413,45 @@ void TlsSocket::read_avail()
 			else
 			{
 				printf("SSL read error: unexpected result from accept: %d\n", status);
+				ERR_print_errors_fp(stdout);
 				close();
 				return;
 			}
 		}
 	}
 
-	if (SSL_is_init_finished(_ssl))
+	// connect to the appropriate handler once init is finished
+	if (!_connection)
 	{
-		_producer.signal_read_avail();
-		_producer.signal_write_avail();
+		if (SSL_is_init_finished(_ssl))
+		{
+			auto shared_me = _myself.lock();
+			if (shared_me)
+			{
+				unsigned char* proto = nullptr;
+				unsigned int len;
+				SSL_get0_alpn_selected(_ssl, const_cast<const unsigned char**>(&proto), &len);
+				if (len)
+				{
+					std::string sproto(reinterpret_cast<char*>(proto), len);
+					_connection = _tls.create_handler(sproto, shared_me);
+				}
+				else
+				{
+					close();
+				}
+			}
+			else
+			{
+				close();
+			}
+		}
+	}
+
+	if (_connection)
+	{
+		signal_read_avail();
+		signal_write_avail();
 	}
 }
 
@@ -413,4 +500,39 @@ void TlsSocket::write_avail()
 void TlsSocket::closed()
 {
 	close();
+}
+
+ssize_t TlsSocket::socket_read(void* b, size_t a)
+{
+	return _socket ? _socket->read(b, a) : 0;
+}
+
+ssize_t TlsSocket::socket_write(void* b, size_t a)
+{
+	return _socket ? _socket->write(b, a) : 0;
+}
+
+void TlsSocket::signal_read_avail()
+{
+	if (_connection)
+	{
+		_connection->read_avail();
+	}
+}
+
+void TlsSocket::signal_write_avail()
+{
+	if (_connection)
+	{
+		_connection->write_avail();
+	}
+}
+
+void TlsSocket::signal_closed()
+{
+	if (_connection)
+	{
+		_connection->closed();
+		_connection.reset();
+	}
 }
