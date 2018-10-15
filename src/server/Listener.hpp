@@ -11,10 +11,11 @@ class SocketEventReceiver
 public:
 	virtual ~SocketEventReceiver() { }
 
-protected:
 	virtual void read_avail() {}
 	virtual void write_avail() {}
 	virtual void closed() {}
+
+protected:
 
 	friend class SocketEventProducer;
 };
