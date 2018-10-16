@@ -130,6 +130,17 @@ TlsContext::TlsContext(const char* certificate, const char* key, Tls *tls)
 	SSL_CTX_set_tlsext_servername_arg(ctx, tls);
 	SSL_CTX_set_alpn_select_cb(ctx, alpn_cb, tls);
 
+	// ecdh for temp stuff
+	auto ecdh = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
+	if (!ecdh)
+	{
+		throw std::runtime_error("EC_KEY_new_by_curv_name failed");
+	}
+	SSL_CTX_set_tmp_ecdh(ctx, ecdh);
+	EC_KEY_free(ecdh);
+
+
+
 	_ctx = ctx;
 
 }
