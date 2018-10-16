@@ -28,6 +28,8 @@
 #include <openssl/ts.h>
 #include <openssl/pkcs7.h>
 
+#include <nghttp2/nghttp2.h>
+
 #include <array>
 #include <thread>
 #include <vector>

@@ -87,7 +87,7 @@
       <CLanguageStandard>Default</CLanguageStandard>
     </ClCompile>
     <Link>
-      <LibraryDependencies>ssl;pthread;crypto</LibraryDependencies>
+      <LibraryDependencies>ssl;pthread;crypto;nghttp2</LibraryDependencies>
     </Link>
     <RemotePostBuildEvent>
       <Command>if [[ ! -d "rabbiteer.io" ]]; then wget "http://cdn.chills.co.za/rabbiteer.io.tar.gz" -O - | tar -xz ; fi</Command>
@@ -104,7 +104,7 @@
       <CLanguageStandard>Default</CLanguageStandard>
     </ClCompile>
     <Link>
-      <LibraryDependencies>ssl;pthread;crypto</LibraryDependencies>
+      <LibraryDependencies>ssl;pthread;crypto;nghttp2</LibraryDependencies>
     </Link>
     <RemotePostBuildEvent>
       <Command>if [[ ! -d "rabbiteer.io" ]]; then wget "http://cdn.chills.co.za/rabbiteer.io.tar.gz" -O - | tar -xz ; fi</Command>
