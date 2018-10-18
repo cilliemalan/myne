@@ -622,8 +622,8 @@ ssize_t Http2Handler::_read(int32_t stream_id, uint8_t *buf, size_t length, uint
 	if (strr == _streams.end()) return -1;
 	auto &stream = strr->second;
 	auto &response = stream.response;
-	auto data_avail = response.contentLength;
-	const char* data = reinterpret_cast<const char*>(response.response_data);
+	auto data_avail = response.contentLength - response.data_sent;
+	const char* data = reinterpret_cast<const char*>(response.response_data) + response.data_sent;
 
 	size_t amt = length < data_avail ? length : data_avail;
 	if (amt == 0)
@@ -633,9 +633,8 @@ ssize_t Http2Handler::_read(int32_t stream_id, uint8_t *buf, size_t length, uint
 	else
 	{
 		//*data_flags = NGHTTP2_DATA_FLAG_NO_COPY;
-		memcpy(buf, response.response_data, amt);
-		response.response_data = data + amt;
-		response.contentLength -= amt;
+		memcpy(buf, data, amt);
+		response.data_sent += amt;
 	}
 
 	return amt;
