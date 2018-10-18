@@ -172,13 +172,13 @@ std::vector<char> serialize_headers_http1(const response_info& r)
 void emplace_http2_header(std::vector<nghttp2_nv> &v, const char* name, size_t namelen, const char* value, size_t valuelen)
 {
 	v.emplace_back(nghttp2_nv
-	{
-		const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(name)),
-		const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(value)),
-		namelen,
-		valuelen,
-		NGHTTP2_NV_FLAG_NO_COPY_NAME | NGHTTP2_NV_FLAG_NO_COPY_VALUE
-	});
+		{
+			const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(name)),
+			const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(value)),
+			namelen,
+			valuelen,
+			NGHTTP2_NV_FLAG_NO_COPY_NAME | NGHTTP2_NV_FLAG_NO_COPY_VALUE
+		});
 }
 
 void emplace_http2_header(std::vector<nghttp2_nv> &v, const std::string &name, const char* value, size_t valuelen)
@@ -191,7 +191,7 @@ void emplace_http2_header(std::vector<nghttp2_nv> &v, const std::string &name, c
 	emplace_http2_header(v, &name[0], name.size(), &value[0], value.size());
 }
 
-std::vector<nghttp2_nv> serialize_headers_http2(std::unique_ptr<response_info> &_r)
+std::vector<nghttp2_nv> serialize_headers_http2(response_info &r)
 {
 	static std::string h_status(":status");
 	static std::string h_accept_ranges("accept-ranges");
@@ -211,7 +211,6 @@ std::vector<nghttp2_nv> serialize_headers_http2(std::unique_ptr<response_info> &
 	static std::string s_keep_alive("keep-alive");
 
 	std::vector<nghttp2_nv> headers;
-	auto &r = *_r;
 
 	emplace_http2_header(headers, h_status, &r.status[0], 3);
 
@@ -370,10 +369,9 @@ void HttpHandler::on_body(const char* b, size_t l)
 void HttpHandler::on_message_complete()
 {
 	bool handled = false;
-	response_info rinfo;
 	for (auto h : _http)
 	{
-		if (h->request(request, rinfo))
+		if (h->request(request))
 		{
 			handled = true;
 			break;
@@ -382,13 +380,13 @@ void HttpHandler::on_message_complete()
 
 	if (!handled)
 	{
-		response_not_found(rinfo);
+		response_not_found(request.response);
 	}
 
 	pending_responses.emplace_back(
-		serialize_headers_http1(rinfo),
-		static_cast<const char*>(rinfo.response_data),
-		rinfo.contentLength);
+		serialize_headers_http1(request.response),
+		static_cast<const char*>(request.response.response_data),
+		request.response.contentLength);
 }
 
 HttpParserCallbacks HttpHandler::parser_callbacks()
@@ -560,10 +558,10 @@ int Http2Handler::_on_frame_recv(const nghttp2_frame *frame)
 			{
 				bool handled = false;
 				auto &stream = sttr->second;
-				stream.response.reset(new response_info());
+
 				for (auto h : _http)
 				{
-					if (h->request(stream, *stream.response))
+					if (h->request(stream))
 					{
 						handled = true;
 						break;
@@ -572,7 +570,7 @@ int Http2Handler::_on_frame_recv(const nghttp2_frame *frame)
 
 				if (!handled)
 				{
-					response_not_found(*stream.response);
+					response_not_found(stream.response);
 				}
 
 				std::vector<nghttp2_nv> response_headers = serialize_headers_http2(stream.response);
@@ -591,8 +589,9 @@ int Http2Handler::_on_frame_recv(const nghttp2_frame *frame)
 int Http2Handler::_on_begin_headers(const nghttp2_frame *frame)
 {
 	auto stream_id = frame->hd.stream_id;
-	auto strr = _streams.emplace(stream_id, stream_id);
+	auto strr = _streams.emplace(stream_id, request_info{});
 	if (!strr.second) return -1;
+	strr.first->second.stream_id = stream_id;
 
 	return 0;
 }
@@ -622,7 +621,7 @@ ssize_t Http2Handler::_read(int32_t stream_id, uint8_t *buf, size_t length, uint
 	auto strr = _streams.find(stream_id);
 	if (strr == _streams.end()) return -1;
 	auto &stream = strr->second;
-	auto &response = *stream.response;
+	auto &response = stream.response;
 	auto data_avail = response.contentLength;
 	const char* data = reinterpret_cast<const char*>(response.response_data);
 

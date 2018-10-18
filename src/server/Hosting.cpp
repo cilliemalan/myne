@@ -110,10 +110,30 @@ static std::string content_type_for(std::string filename)
 	return "application/octet-stream";
 }
 
-void reset_response(response_info &response, int statusCode, const std::string &status)
+void reset_request(request_info &request)
 {
-	response.status_code = statusCode;
-	response.status = status;
+	request.method = Method::Unknown;
+	request.path.clear();
+	request.host.clear();
+	request.connection = Connection::None;
+	request.accept.clear();
+	request.accept_charset.clear();
+	request.accept_encoding.clear();
+	request.cookie.clear();
+	request.referer.clear();
+	request.user_agent.clear();
+	request.dnt = false;
+	request.ranges.clear();
+	request.upgrade_insecure = false;
+
+	request.stream_id = 0;
+	reset_response(request.response);
+}
+
+void reset_response(response_info &response)
+{
+	response.status_code = 0;
+	response.status.clear();
 	response.lastModified = 0;
 	response.etag.clear();
 	response.contentType.clear();
@@ -129,7 +149,16 @@ void reset_response(response_info &response, int statusCode, const std::string &
 	response.content_range.size = 0;
 	response.content_range.start = 0;
 	response.response_data = 0;
+	response.data_sent = 0;
 	response._strings.clear();
+}
+
+void reset_response(response_info &response, int statusCode, const std::string &status)
+{
+	reset_response(response);
+	response.status_code = statusCode;
+	response.status.reserve(status.size() + 1);
+	response.status.assign(status);
 }
 
 static std::string _sok("200 OK");
@@ -200,7 +229,7 @@ StaticHosting::~StaticHosting()
 {
 }
 
-bool StaticHosting::request(const request_info &request, response_info &response)
+bool StaticHosting::request(request_info &request)
 {
 	UrlParser parsed_url(request.path);
 
@@ -230,6 +259,7 @@ bool StaticHosting::request(const request_info &request, response_info &response
 	try
 	{
 		auto &f = file(full_path);
+		auto &response = request.response;
 
 		if (request.method == Method::GET)
 		{

@@ -63,14 +63,6 @@ private:
 	HttpParser _parser;
 };
 
-struct stream_info : public request_info
-{
-	stream_info(int stream_id) :stream_id(stream_id) {}
-
-	int stream_id;
-	std::unique_ptr<response_info> response;
-};
-
 class Http2Handler : public SocketEventReceiver
 {
 public:
@@ -85,7 +77,7 @@ private:
 	HttpServer &_http;
 	std::shared_ptr<Socket> _socket;
 
-	std::unordered_map<int, stream_info> _streams;
+	std::unordered_map<int, request_info> _streams;
 	nghttp2_session *_session;
 
 	ssize_t _recv(uint8_t *buf, size_t length, int flags);

@@ -85,6 +85,9 @@ inline bool endswith(const std::string &a, const char (&b)[BSIZE]) noexcept
 }
 
 class response_info;
+class request_info;
+void reset_request(request_info &request);
+void reset_response(response_info &response);
 void reset_response(response_info &response, int statusCode, const std::string &status);
 void response_bad_request(response_info &response);
 void response_internal_server_error(response_info &response);
@@ -158,6 +161,7 @@ struct response_info
 	struct content_range content_range;
 
 	const void* response_data;
+	size_t data_sent;
 
 	std::vector<std::string> _strings;
 };
@@ -179,6 +183,9 @@ struct request_info
 	bool dnt;
 	std::vector<range> ranges;
 	bool upgrade_insecure;
+
+	int stream_id;
+	response_info response;
 };
 
 class Hosting
@@ -188,7 +195,7 @@ public:
 	Hosting(const Hosting&) = delete;
 	virtual ~Hosting() {}
 
-	virtual bool request(const request_info &request, response_info &response) = 0;
+	virtual bool request(request_info &request) = 0;
 };
 
 class StaticHosting : public Hosting
@@ -196,7 +203,7 @@ class StaticHosting : public Hosting
 public:
 	StaticHosting(const std::string &root);
 	~StaticHosting();
-	virtual bool request(const request_info &request, response_info &response);
+	virtual bool request(request_info &request);
 private:
 	const MappedFile &file(const std::string&);
 
