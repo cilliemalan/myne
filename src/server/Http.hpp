@@ -63,12 +63,20 @@ private:
 	HttpParser _parser;
 };
 
+struct stream_info : public request_info
+{
+	stream_info(int stream_id) :stream_id(stream_id) {}
+
+	int stream_id;
+	std::unique_ptr<response_info> response;
+};
+
 class Http2Handler : public SocketEventReceiver
 {
 public:
 	Http2Handler(HttpServer &http, std::shared_ptr<Socket> socket);
 
-	virtual ~Http2Handler() {}
+	virtual ~Http2Handler();
 
 	virtual void read_avail();
 	virtual void write_avail();
@@ -76,4 +84,25 @@ public:
 private:
 	HttpServer &_http;
 	std::shared_ptr<Socket> _socket;
+
+	std::unordered_map<int, stream_info> _streams;
+	nghttp2_session *_session;
+
+	ssize_t _recv(uint8_t *buf, size_t length, int flags);
+	ssize_t _send(const uint8_t *data, size_t length, int flags);
+	int _on_header(const nghttp2_frame *frame, const uint8_t *name, size_t namelen, const uint8_t *value, size_t valuelen, uint8_t flags);
+	int _on_begin_headers(const nghttp2_frame *frame);
+	int _on_frame_recv(const nghttp2_frame *frame);
+	int _on_stream_close(int32_t stream_id, uint32_t error_code);
+	ssize_t _read(int32_t stream_id, uint8_t *buf, size_t length, uint32_t *data_flags, nghttp2_data_source *source);
+	int _send_data(nghttp2_frame *frame, const uint8_t *framehd, size_t length, nghttp2_data_source *source);
+
+	friend ssize_t http2_recv(nghttp2_session *session, uint8_t *buf, size_t length, int flags, void *user_data);
+	friend ssize_t http2_send(nghttp2_session *session, const uint8_t *data, size_t length, int flags, void *user_data);
+	friend int http2_on_header(nghttp2_session *session, const nghttp2_frame *frame, const uint8_t *name, size_t namelen, const uint8_t *value, size_t valuelen, uint8_t flags, void *user_data);
+	friend int http2_on_begin_headers(nghttp2_session *session, const nghttp2_frame *frame, void *user_data);
+	friend int http2_on_frame_recv(nghttp2_session *session, const nghttp2_frame *frame, void *user_data);
+	friend int http2_on_stream_close(nghttp2_session *session, int32_t stream_id, uint32_t error_code, void *user_data);
+	friend ssize_t http2_read(nghttp2_session *session, int32_t stream_id, uint8_t *buf, size_t length, uint32_t *data_flags, nghttp2_data_source *source, void *user_data);
+	friend int http2_send_data(nghttp2_session *session, nghttp2_frame *frame, const uint8_t *framehd, size_t length, nghttp2_data_source *source, void *user_data);
 };

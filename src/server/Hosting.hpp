@@ -46,6 +46,12 @@ inline bool s_eq(const std::string &a, const char (&b)[BSIZE]) noexcept
 	return case_insensitive_compare(a, b) == 0;
 }
 
+template<size_t BSIZE>
+inline bool s_eq(const char *a, size_t asize, const char(&b)[BSIZE]) noexcept
+{
+	return case_insensitive_compare(a, asize, b, sizeof(b) - 1) == 0;
+}
+
 inline bool startswith(const std::string &a, const std::string &b) noexcept
 {
 	return startswith(a.c_str(), a.size(), b.c_str(), b.size());
@@ -79,11 +85,7 @@ inline bool endswith(const std::string &a, const char (&b)[BSIZE]) noexcept
 }
 
 class response_info;
-std::string zeropad(int i, unsigned char width);
-std::string serialize_date(time_t date);
-std::vector<char> serialize_headers(const response_info& r);
-
-void reset_response(response_info &response, int statusCode, std::string status);
+void reset_response(response_info &response, int statusCode, const std::string &status);
 void response_bad_request(response_info &response);
 void response_internal_server_error(response_info &response);
 void response_not_found(response_info &response);
@@ -156,6 +158,8 @@ struct response_info
 	struct content_range content_range;
 
 	const void* response_data;
+
+	std::vector<std::string> _strings;
 };
 
 struct request_info
