@@ -10,10 +10,9 @@ std::vector<Listener*> listeners;
 
 void sig_handler(int signum)
 {
-	printf("got SIGINT\n");
+	info("got SIGINT\n");
 	if (listeners.size())
 	{
-		printf("stopping...\n");
 		for (auto l : listeners) l->stop();
 	}
 }
@@ -28,15 +27,15 @@ void maximize_fds()
 			l.rlim_cur = l.rlim_max;
 			if (prlimit(getpid(), RLIMIT_NOFILE, &l, nullptr) < 0)
 			{
-				printf("warning: could not increase file limit.\n");
-				perror("prlimit");
+				warning("warning: could not increase file limit.\n");
+				logpwarning("prlimit");
 			}
 		}
 	}
 	else
 	{
-		printf("warning: could not get file limit.\n");
-		perror("prlimit");
+		warning("warning: could not get file limit.\n");
+		logpwarning("prlimit");
 	}
 }
 
@@ -55,8 +54,6 @@ int main(int argc, char *argv[])
 	tls.add_handler("http/1.1", [&http](std::shared_ptr<TlsSocket> sock) { return std::make_shared<HttpHandler>(http, sock); });
 	tls.add_handler("h2", [&http](std::shared_ptr<TlsSocket> sock) { return std::make_shared<Http2Handler>(http, sock); });
 
-
-	printf("starting listener\n");
 	Listener l1(nullptr, 443, [&tls,&http](std::shared_ptr<Socket> socket, std::shared_ptr<SocketEventProducer> events)
 	{
 		auto tls_socket = std::make_shared<TlsSocket>(socket, tls);

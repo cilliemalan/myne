@@ -97,7 +97,6 @@ TlsContext::TlsContext(const char* certificate, const char* key, Tls *tls)
 	SSL_CTX* ctx = SSL_CTX_new(method);
 	if (!ctx)
 	{
-		perror("Unable to create SSL context");
 		ERR_print_errors_fp(stderr);
 		throw std::runtime_error("Unable to create SSL context");
 	}
@@ -314,7 +313,7 @@ ssize_t TlsSocket::read(void* b, size_t max)
 		}
 		else
 		{
-			printf("SSL read error: read from read bio failed\n");
+			warning("SSL read error: read from read bio failed\n");
 			close();
 			return 0;
 		}
@@ -348,7 +347,7 @@ ssize_t TlsSocket::write(const void* b, size_t amt)
 		}
 		else
 		{
-			printf("SSL read error: failed to fill write BIO\n");
+			warning("SSL read error: failed to fill write BIO\n");
 			close();
 			return 0;
 		}
@@ -385,13 +384,13 @@ void TlsSocket::read_avail()
 				auto consumed = BIO_write(_rbio, p, static_cast<int>(amt));
 				if (consumed < 0)
 				{
-					printf("SSL read error: BIO write to read bio failed\n");
+					warning("SSL read error: BIO write to read bio failed\n");
 					close();
 					return;
 				}
 				else if (consumed == 0 && amt > 0)
 				{
-					printf("SSL read error: failed to fill read BIO\n");
+					warning("SSL read error: failed to fill read BIO\n");
 					close();
 					return;
 				}
@@ -423,7 +422,7 @@ void TlsSocket::read_avail()
 			}
 			else
 			{
-				printf("SSL read error: unexpected result from accept: %d\n", status);
+				warning("SSL read error: unexpected result from accept: %d\n", status);
 				ERR_print_errors_fp(stdout);
 				close();
 				return;
@@ -501,7 +500,7 @@ void TlsSocket::write_avail()
 		}
 		else
 		{
-			printf("SSL read error: BIO read from write bio failed\n");
+			warning("SSL read error: BIO read from write bio failed\n");
 			close();
 			return;
 		}

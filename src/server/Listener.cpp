@@ -253,12 +253,12 @@ void Acceptor::worker()
 				}
 				catch (std::runtime_error &e)
 				{
-					printf("Exception in handler: %s\n", e.what());
+					error("Exception in handler: %s\n", e.what());
 					eof = true;
 				}
 				catch (...)
 				{
-					printf("Unknown exception in handler\n");
+					error("Unknown exception in handler\n");
 					eof = true;
 				}
 			}
@@ -307,7 +307,7 @@ Listener::Listener(const char* address, int port, socket_handler acceptHandler)
 	if (pipe2(_pfd, O_NONBLOCK) == -1) throw system_err();
 	epoll_add(_efd, _pfd[0]);
 
-	printf("created listener for %s:%d\n", address ? address : "<null>", port);
+	info("listening on %s:%d\n", address ? address : "0.0.0.0", port);
 }
 
 Listener::~Listener()
@@ -381,7 +381,7 @@ void Listener::worker()
 						else
 						{
 							// couldn't accept for some reason
-							perror("accept");
+							logperror("accept");
 							break;
 						}
 					}
@@ -393,7 +393,7 @@ void Listener::worker()
 						sbuf, sizeof sbuf,
 						NI_NUMERICHOST | NI_NUMERICSERV))
 					{
-						//printf("Accepted connection on descriptor %d " "(host=%s, port=%s)\n", infd, hbuf, sbuf);
+						info("Accepted connection from %s:%s", hbuf, sbuf);
 					}
 
 					// Make the incoming socket non-blocking and forward to an acceptor

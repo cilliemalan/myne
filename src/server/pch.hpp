@@ -44,10 +44,7 @@ class system_err : std::runtime_error
 public:
 	system_err(int _errno)
 		: std::runtime_error(_errno > 0 ? strerror(_errno) : "unspecified error")
-	{
-		auto error_message = strerror(_errno);
-		printf("encountered error: %s\n", error_message);
-	}
+	{}
 
 	system_err()
 		: system_err(errno)
@@ -155,3 +152,9 @@ void log(LogLevel ll, const char *format, ...);
 #define warning(...) log(LogLevel::Warning, __VA_ARGS__)
 #define info(...) log(LogLevel::Info, __VA_ARGS__)
 #define debug(...) log(LogLevel::Debug, __VA_ARGS__)
+inline void logperror(const char* msg) { error("%s: %s", msg, strerror(errno)); }
+inline void logperror(const std::string &msg) { logperror(msg.c_str()); }
+inline void logpfatal(const char* msg) { fatal("%s: %s", msg, strerror(errno)); }
+inline void logpfatal(const std::string &msg) { logpfatal(msg.c_str()); }
+inline void logpwarning(const char* msg) { warning("%s: %s", msg, strerror(errno)); }
+inline void logpwarning(const std::string &msg) { logpwarning(msg.c_str()); }
