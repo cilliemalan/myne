@@ -53,3 +53,88 @@ public:
 		: system_err(errno)
 	{}
 };
+
+
+
+
+int case_insensitive_compare(const char *a, size_t asize, const char *b, size_t bsize) noexcept;
+std::string resolvepath(const std::string &path) noexcept;
+std::string combinepath(const std::string &root, const std::string &suffix);
+bool startswith(const char* a, size_t asize, const char *b, size_t bsize) noexcept;
+bool endswith(const char* a, size_t asize, const char *b, size_t bsize) noexcept;
+
+inline int case_insensitive_compare(const std::string &a, const std::string &b) noexcept
+{
+	return case_insensitive_compare(a.c_str(), a.size(), b.c_str(), b.size());
+}
+
+inline int case_insensitive_compare(const std::string &a, const char* b, size_t bsize) noexcept
+{
+	return case_insensitive_compare(a.c_str(), a.size(), b, bsize);
+}
+
+template<size_t BSIZE>
+inline int case_insensitive_compare(const std::string &a, const char(&b)[BSIZE]) noexcept
+{
+	return case_insensitive_compare(a.c_str(), a.size(), b, sizeof(b) - 1);
+}
+
+inline bool s_eq(const std::string &a, const std::string &b) noexcept
+{
+	return case_insensitive_compare(a, b) == 0;
+}
+
+inline bool s_eq(const char *a, size_t asize, const char *b, size_t bsize) noexcept
+{
+	return case_insensitive_compare(a, asize, b, bsize) == 0;
+}
+
+template<size_t ASIZE, size_t BSIZE>
+inline bool s_eq(const char(&a)[ASIZE], const char(&b)[BSIZE]) noexcept
+{
+	return case_insensitive_compare(a, sizeof(a) - 1, b, sizeof(b) - 1) == 0;
+}
+
+template<size_t BSIZE>
+inline bool s_eq(const std::string &a, const char(&b)[BSIZE]) noexcept
+{
+	return case_insensitive_compare(a, b) == 0;
+}
+
+template<size_t BSIZE>
+inline bool s_eq(const char *a, size_t asize, const char(&b)[BSIZE]) noexcept
+{
+	return case_insensitive_compare(a, asize, b, sizeof(b) - 1) == 0;
+}
+
+inline bool startswith(const std::string &a, const std::string &b) noexcept
+{
+	return startswith(a.c_str(), a.size(), b.c_str(), b.size());
+}
+
+inline bool startswith(const std::string &a, const char* b, size_t bsize) noexcept
+{
+	return startswith(a.c_str(), a.size(), b, bsize);
+}
+
+template<size_t BSIZE>
+inline bool startswith(const std::string &a, const char(&b)[BSIZE]) noexcept
+{
+	return startswith(a.c_str(), a.size(), b, sizeof(b) - 1);
+}
+
+inline bool endswith(const std::string &a, const std::string &b) noexcept
+{
+	return endswith(a.c_str(), a.size(), b.c_str(), b.size());
+}
+
+inline bool endswith(const std::string &a, const char* b, size_t bsize) noexcept
+{
+	return endswith(a.c_str(), a.size(), b, bsize);
+}
+
+template<size_t BSIZE>
+inline bool endswith(const std::string &a, const char(&b)[BSIZE]) noexcept
+{
+	return endswith(a.c_str(), a.size(), b, sizeof(b) - 1);
+}
