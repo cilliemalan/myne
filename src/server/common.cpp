@@ -86,3 +86,50 @@ bool endswith(const char* a, size_t asize, const char *b, size_t bsize) noexcept
 	if (asize < bsize) return false;
 	return strncasecmp(a + (asize - bsize), b, bsize) == 0;
 }
+
+static const char _fat[] = "\x1B[1;31m[fatal]";
+static const char _err[] = "\x1B[0;31m[error]";
+static const char _wrn[] = "\x1B[0;33m[warng]";
+static const char _ifo[] = "\x1B[0;34m[ info]";
+static const char _dbg[] = "\x1B[0;37m[debug]";
+static const char _rst[] = "\x1B[0m\n";
+void log(LogLevel ll, const char *format, ...)
+{
+	const char *_pfx;
+	FILE *fp;
+	switch (ll)
+	{
+	case LogLevel::Fatal:
+		_pfx = _fat;
+		fp = stderr;
+		break;
+	case LogLevel::Error:
+		_pfx = _err;
+		fp = stderr;
+		break;
+	case LogLevel::Warning:
+		_pfx = _wrn;
+		fp = stderr;
+		break;
+	case LogLevel::Info:
+		_pfx = _ifo;
+		fp = stdout;
+		break;
+	case LogLevel::Debug:
+		_pfx = _dbg;
+		fp = stdout;
+		break;
+	}
+
+	time_t secs;
+	auto t = localtime(&secs);
+	time(&secs);
+	fprintf(fp, "[%4d-%2d-%2d %2d:%2d:%2d]%s", t->tm_year, t->tm_mon, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec, _pfx);
+
+	va_list args;
+	va_start(args, format);
+	vfprintf(fp, format, args);
+	va_end(args);
+
+	fwrite(_rst, 1, sizeof(_rst) - 1, fp);
+}

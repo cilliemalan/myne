@@ -138,3 +138,20 @@ inline bool endswith(const std::string &a, const char(&b)[BSIZE]) noexcept
 {
 	return endswith(a.c_str(), a.size(), b, sizeof(b) - 1);
 }
+
+
+enum class LogLevel
+{
+	Fatal,
+	Error,
+	Warning,
+	Info,
+	Debug
+};
+
+void log(LogLevel ll, const char *format, ...);
+#define fatal(...) log(LogLevel::Fatal, __VA_ARGS__)
+#define error(...) log(LogLevel::Error, __VA_ARGS__)
+#define warning(...) log(LogLevel::Warning, __VA_ARGS__)
+#define info(...) log(LogLevel::Info, __VA_ARGS__)
+#define debug(...) log(LogLevel::Debug, __VA_ARGS__)
