@@ -348,7 +348,7 @@ std::vector<Acceptor> Listener::initialize_acceptors()
 
 void Listener::worker()
 {
-	constexpr int n = 4096;
+	constexpr int n = 1024;
 	epoll_event events[n];
 
 	while (_running)
