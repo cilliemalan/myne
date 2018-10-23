@@ -1,17 +1,6 @@
 #include "pch.hpp"
 
 
-int case_insensitive_compare(const char *a, size_t asize, const char *b, size_t bsize) noexcept
-{
-	if (!a && !b) return 0;
-	if (b && !a) return -1;
-	if (a && !b) return 1;
-	if (asize == 0 && bsize == 0) return 0;
-	else if (asize < bsize) return -1;
-	else if (asize > bsize) return 1;
-	else return strncasecmp(&a[0], &b[0], asize);
-}
-
 std::string resolvepath(const std::string &path) noexcept
 {
 	char buf[PATH_MAX + 1];
@@ -73,6 +62,29 @@ std::string combinepath(const std::string &root, const std::string &suffix)
 	result += suffix;
 
 	return resolvepath(result);
+}
+
+std::string pathextension(const std::string &path) noexcept
+{
+	int l = static_cast<int>(path.size());
+	for (int i = l - 2; i >= 0; i--)
+	{
+		auto c = path[i];
+		if (c == '.') return { &path[i], static_cast<size_t>(l - i) };
+		if (c == '/') break;
+	}
+	return {};
+}
+
+int case_insensitive_compare(const char *a, size_t asize, const char *b, size_t bsize) noexcept
+{
+	if (!a && !b) return 0;
+	if (b && !a) return -1;
+	if (a && !b) return 1;
+	if (asize == 0 && bsize == 0) return 0;
+	else if (asize < bsize) return -1;
+	else if (asize > bsize) return 1;
+	else return strncasecmp(&a[0], &b[0], asize);
 }
 
 bool startswith(const char* a, size_t asize, const char *b, size_t bsize) noexcept

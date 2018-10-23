@@ -54,9 +54,10 @@ public:
 
 
 
-int case_insensitive_compare(const char *a, size_t asize, const char *b, size_t bsize) noexcept;
 std::string resolvepath(const std::string &path) noexcept;
 std::string combinepath(const std::string &root, const std::string &suffix);
+std::string pathextension(const std::string &path) noexcept;
+int case_insensitive_compare(const char *a, size_t asize, const char *b, size_t bsize) noexcept;
 bool startswith(const char* a, size_t asize, const char *b, size_t bsize) noexcept;
 bool endswith(const char* a, size_t asize, const char *b, size_t bsize) noexcept;
 

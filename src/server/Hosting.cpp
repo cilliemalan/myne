@@ -2,26 +2,42 @@
 #include "HttpParser.hpp"
 #include "Hosting.hpp"
 
-static std::string content_type_for(std::string filename)
+
+static const std::string _mime_bin("application/octet-stream");
+static const std::unordered_map<std::string, std::string> _mime_mappings{
+	{".png", "image/png"},
+	{".gif", "image/gif"},
+	{".bmp", "image/bmp"},
+	{".svg", "image/svg+xml"},
+
+	{".htm", "text/html"},
+	{".html", "text/html"},
+	{".txt", "text/plain"},
+	{".css", "text/css"},
+
+	{".js", "application/javascript"},
+	{".json", "application/json"},
+	{".xml", "application/xml"},
+	{".pdf", "application/pdf"},
+	{".woff", "application/font-woff"},
+	{".woff2", "application/font-woff2"},
+
+	{".zip", "application/octet-stream"},
+};
+
+
+static const std::string &content_type_for(const std::string &filename)
 {
-	if (endswith(filename, ".png")) return "image/png";
-	if (endswith(filename, ".gif")) return "image/gif";
-	if (endswith(filename, ".bmp")) return "image/bmp";
-	if (endswith(filename, ".svg")) return "image/svg+xml";
-	if (endswith(filename, ".jpg") || endswith(filename, ".jpeg")) return "image/jpeg";
-
-	if (endswith(filename, ".htm") || endswith(filename, ".html")) return "text/html";
-	if (endswith(filename, ".css")) return "text/css";
-	if (endswith(filename, ".txt")) return "text/plain";
-
-	if (endswith(filename, ".js")) return "application/javascript";
-	if (endswith(filename, ".json")) return "application/json";
-	if (endswith(filename, ".xml")) return "application/xml";
-	if (endswith(filename, ".pdf")) return "application/pdf";
-	if (endswith(filename, ".woff")) return "application/font-woff";
-	if (endswith(filename, ".woff2")) return "application/font-woff2";
-
-	return "application/octet-stream";
+	std::string ext = pathextension(filename);
+	const auto iter = _mime_mappings.find(ext);
+	if (iter != _mime_mappings.cend())
+	{
+		return iter->second;
+	}
+	else
+	{
+		return _mime_bin;
+	}
 }
 
 void reset_request(request_info &request)
@@ -195,7 +211,6 @@ bool StaticHosting::request(request_info &request)
 		return false;
 	}
 }
-
 
 const MappedFile &StaticHosting::file(const std::string &filename)
 {
