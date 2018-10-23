@@ -86,6 +86,8 @@
     <ClCompile>
       <CppLanguageStandard>c++17</CppLanguageStandard>
       <CLanguageStandard>Default</CLanguageStandard>
+      <DebugInformationFormat />
+      <AdditionalOptions>-ggdb3 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <LibraryDependencies>ssl;pthread;crypto;nghttp2</LibraryDependencies>
@@ -103,6 +105,7 @@
     <ClCompile>
       <CppLanguageStandard>c++17</CppLanguageStandard>
       <CLanguageStandard>Default</CLanguageStandard>
+      <AdditionalOptions>-ggdb3 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <LibraryDependencies>ssl;pthread;crypto;nghttp2</LibraryDependencies>
