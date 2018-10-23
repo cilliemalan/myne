@@ -39,7 +39,7 @@
 #include <queue>
 #include <atomic>
 
-class system_err : std::runtime_error
+class system_err : public std::runtime_error
 {
 public:
 	system_err(int _errno)

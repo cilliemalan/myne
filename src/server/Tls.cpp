@@ -2,6 +2,22 @@
 #include "Listener.hpp"
 #include "Tls.hpp"
 
+static int _get_tls_error_string_cb(const char *str, size_t len, void *u)
+{
+	std::string &s = *reinterpret_cast<std::string *>(u);
+	s += std::string(str, len);
+	return 0;
+}
+
+std::string get_tls_error_string()
+{
+	std::string output;
+	ERR_print_errors_cb(_get_tls_error_string_cb, &output);
+	return output;
+}
+
+
+
 void BIO_advance(BIO* bio, size_t howfar)
 {
 	if (howfar > 0)
@@ -19,14 +35,14 @@ X509 *load_cert(const char *file)
 	auto *bio = BIO_new_file(file, "r");
 	if (!bio)
 	{
-		throw std::runtime_error("could not open certificate file");
+		throw tls_error("could not open certificate file");
 	}
 
 	auto cert = PEM_read_bio_X509_AUX(bio, nullptr, nullptr, nullptr);
 	if (!cert)
 	{
 		BIO_free(bio);
-		throw std::runtime_error("could not load certificate");
+		throw tls_error("could not load certificate");
 	}
 
 	BIO_free(bio);
@@ -97,26 +113,23 @@ TlsContext::TlsContext(const char* certificate, const char* key, Tls *tls)
 	SSL_CTX* ctx = SSL_CTX_new(method);
 	if (!ctx)
 	{
-		ERR_print_errors_fp(stderr);
-		throw std::runtime_error("Unable to create SSL context");
+		throw tls_error("Unable to create SSL context");
 	}
 
 	auto cert = load_cert(certificate);
 	if (SSL_CTX_use_certificate(ctx, cert) <= 0)
 	{
-		ERR_print_errors_fp(stderr);
-		throw std::runtime_error("Unable to use certificate");
+		throw tls_error("Unable to use certificate");
 	}
 
 	if (SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM) <= 0)
 	{
-		ERR_print_errors_fp(stderr);
-		throw std::runtime_error("Unable to read key");
+		throw tls_error("Unable to read key");
 	}
 
 	if (SSL_CTX_check_private_key(ctx) != 1)
 	{
-		throw std::runtime_error("SSL_CTX_check_private_key failed");
+		throw tls_error("SSL_CTX_check_private_key failed");
 	}
 
 	_cert = cert;
@@ -133,7 +146,7 @@ TlsContext::TlsContext(const char* certificate, const char* key, Tls *tls)
 	auto ecdh = EC_KEY_new_by_curve_name(NID_X9_62_prime256v1);
 	if (!ecdh)
 	{
-		throw std::runtime_error("EC_KEY_new_by_curv_name failed");
+		throw tls_error("EC_KEY_new_by_curv_name failed");
 	}
 	SSL_CTX_set_tmp_ecdh(ctx, ecdh);
 	EC_KEY_free(ecdh);
@@ -234,7 +247,7 @@ int Tls::alpn_negotiate(SSL *s, unsigned char **out, unsigned char *outlen,
 			{
 				auto &protocol = s.first;
 				if (protocol.size() == 0) continue;
-				
+
 				auto ix = alpn_data.size();
 				unsigned char len = static_cast<unsigned char>(protocol.length());
 				alpn_data.resize(ix + len + 1);
@@ -278,7 +291,7 @@ TlsSocket::TlsSocket(std::shared_ptr<Socket> base, const Tls &tls)
 	_ssl = SSL_new(tls.first_ctx()->_ctx);
 	if (!_rbio || !_wbio || !_ssl)
 	{
-		throw std::runtime_error("failed to initialize ssl");
+		throw tls_error("failed to initialize ssl");
 	}
 
 	SSL_set_accept_state(_ssl);
@@ -313,7 +326,7 @@ ssize_t TlsSocket::read(void* b, size_t max)
 		}
 		else
 		{
-			warning("SSL read error: read from read bio failed\n");
+			tlswarning("SSL read error: read from read bio failed\n");
 			close();
 			return 0;
 		}
@@ -347,7 +360,7 @@ ssize_t TlsSocket::write(const void* b, size_t amt)
 		}
 		else
 		{
-			warning("SSL read error: failed to fill write BIO\n");
+			tlswarning("SSL read error: failed to fill write BIO\n");
 			close();
 			return 0;
 		}
@@ -384,13 +397,13 @@ void TlsSocket::read_avail()
 				auto consumed = BIO_write(_rbio, p, static_cast<int>(amt));
 				if (consumed < 0)
 				{
-					warning("SSL read error: BIO write to read bio failed\n");
+					tlswarning("SSL read error: BIO write to read bio failed\n");
 					close();
 					return;
 				}
 				else if (consumed == 0 && amt > 0)
 				{
-					warning("SSL read error: failed to fill read BIO\n");
+					tlswarning("SSL read error: failed to fill read BIO\n");
 					close();
 					return;
 				}
@@ -422,8 +435,7 @@ void TlsSocket::read_avail()
 			}
 			else
 			{
-				warning("SSL read error: unexpected result from accept: %d\n", status);
-				ERR_print_errors_fp(stdout);
+				tlswarning("SSL read error: unexpected result from accept");
 				close();
 				return;
 			}
@@ -500,7 +512,7 @@ void TlsSocket::write_avail()
 		}
 		else
 		{
-			warning("SSL read error: BIO read from write bio failed\n");
+			tlswarning("SSL read error: BIO read from write bio failed\n");
 			close();
 			return;
 		}
@@ -546,3 +558,13 @@ void TlsSocket::signal_closed()
 		_connection.reset();
 	}
 }
+
+tls_error::tls_error()
+	: std::runtime_error(get_tls_error_string())
+{}
+
+tls_error::tls_error(std::string msg)
+	: std::runtime_error(msg + ": " + get_tls_error_string())
+{
+}
+

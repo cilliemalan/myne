@@ -3,6 +3,16 @@
 static constexpr auto SSL_PROTOCOL_FLAGS = SSL_OP_ALL | SSL_OP_NO_SSLv3 | SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1 | SSL_OP_NO_COMPRESSION | SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION;
 static constexpr auto SSL_CIPHER_LIST = "ECDH+AESGCM:ECDH+CHACHA20:ECDH+AES256:ECDH+AES128:!aNULL:!MD5:!DSS:!SHA1:!AESCCM:!DHE:!RSA";
 
+
+std::string get_tls_error_string();
+inline void tlserror(const char* msg) { error("%s: %s", msg, get_tls_error_string().c_str()); }
+inline void tlserror(const std::string &msg) { logperror(msg.c_str()); }
+inline void tlsfatal(const char* msg) { fatal("%s: %s", msg, get_tls_error_string().c_str()); }
+inline void tlsfatal(const std::string &msg) { logpfatal(msg.c_str()); }
+inline void tlswarning(const char* msg) { warning("%s: %s", msg, get_tls_error_string().c_str()); }
+inline void tlswarning(const std::string &msg) { logpwarning(msg.c_str()); }
+
+
 class Tls;
 class TlsSocket;
 
@@ -103,4 +113,11 @@ private:
 	BIO *_wbio;
 
 	std::shared_ptr<SocketEventReceiver> _connection;
+};
+
+class tls_error : public std::runtime_error
+{
+public:
+	tls_error();
+	tls_error(std::string msg);
 };
