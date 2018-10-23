@@ -1,4 +1,5 @@
 #pragma once
+#define __cplusplus 201703L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
