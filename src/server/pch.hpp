@@ -16,6 +16,7 @@
 #include <netinet/tcp.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <assert.h>
 
 #include <openssl/conf.h>
 #include <openssl/evp.h>

@@ -3,6 +3,12 @@
 
 // helper funcs
 
+static void write_and_forget(int fd, char* c, size_t l)
+{
+	auto r = write(fd, c, l);
+	assert(r >= 0 && static_cast<size_t>(r) == l);
+}
+
 static void make_non_blocking(int sfd)
 {
 	int flags = fcntl(sfd, F_GETFL, 0);
@@ -282,7 +288,7 @@ void Acceptor::stop()
 {
 	_running = false;
 
-	if (_pfd[1]) { char a = 0; write(_pfd[1], &a, 1); }
+	if (_pfd[1]) { char a = 0; write_and_forget(_pfd[1], &a, 1); }
 
 	if (_thread.joinable()) _thread.join();
 
@@ -421,7 +427,7 @@ void Listener::worker()
 void Listener::stop()
 {
 	_running = false;
-	if (_pfd[1]) { char a = 0; write(_pfd[1], &a, 1); }
+	if (_pfd[1]) { char a = 0; write_and_forget(_pfd[1], &a, 1); }
 }
 
 void Listener::wait()
